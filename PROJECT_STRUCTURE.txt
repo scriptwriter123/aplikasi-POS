@@ -1,0 +1,19 @@
+kasir/
+├── main.py
+├── requirements.txt
+├── pyproject.toml
+├── alembic.ini
+├── ARCHITECTURE.md
+├── DATABASE.md
+├── app/
+│   ├── core/
+│   ├── models/
+│   ├── repositories/
+│   ├── services/
+│   ├── ui/
+│   ├── utils/
+│   ├── hardware/
+│   └── payments/
+├── migrations/
+├── scripts/
+└── tests/

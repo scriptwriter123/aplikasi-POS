@@ -1,0 +1,247 @@
+import os
+from datetime import date
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+import pytest
+from PySide6.QtWidgets import QApplication
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import Session
+from sqlalchemy.pool import StaticPool
+
+from app.core.database import Base
+from app.core.exceptions import AuthorizationError, ValidationError
+from app.models import (
+    Account,
+    Product,
+    PurchaseOrder,
+    PurchaseOrderItem,
+    Role,
+    StockMovement,
+    Store,
+    Supplier,
+    User,
+)
+from app.services.financial_service import FinancialService
+from app.services.purchase_service import PurchaseService
+from app.ui.views.purchase_view import PurchaseView
+
+
+@pytest.fixture
+def purchase_session():
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    try:
+        with Session(engine) as session:
+            owner_role = Role(name="OWNER")
+            cashier_role = Role(name="CASHIER")
+            store = Store(code="MAIN", name="Toko Contoh")
+            supplier = Supplier(code="SUP-001", name="Pemasok Contoh")
+            product = Product(
+                sku="SKU-001",
+                name="Beras",
+                purchase_price=10_000,
+                selling_price=12_000,
+                stock_qty=8,
+                is_active=True,
+            )
+            session.add_all([owner_role, cashier_role, store, supplier, product])
+            session.flush()
+            owner = User(
+                username="owner",
+                full_name="Test Owner",
+                password_hash="unused",
+                role=owner_role,
+            )
+            cashier = User(
+                username="cashier",
+                full_name="Test Cashier",
+                password_hash="unused",
+                role=cashier_role,
+            )
+            accounts = [
+                Account(
+                    code=code,
+                    name=name,
+                    account_type=account_type,
+                    is_active=True,
+                    is_system=True,
+                )
+                for code, name, account_type in (
+                    ("1000", "Kas", "ASSET"),
+                    ("1010", "Bank", "ASSET"),
+                    ("1200", "Persediaan", "ASSET"),
+                    ("2000", "Hutang Usaha", "LIABILITY"),
+                    ("3000", "Modal Pemilik", "EQUITY"),
+                    ("3100", "Saldo Awal", "EQUITY"),
+                    ("4000", "Penjualan", "REVENUE"),
+                    ("5000", "Harga Pokok Penjualan", "EXPENSE"),
+                )
+            ]
+            session.add_all([owner, cashier, *accounts])
+            session.flush()
+            account_ids = {account.code: account.id for account in accounts}
+            opening_inventory = product.stock_qty * product.purchase_price
+            FinancialService(session).initialize(
+                owner,
+                date.today(),
+                {
+                    account_ids["1000"]: 1_000_000,
+                    account_ids["1200"]: opening_inventory,
+                    account_ids["3000"]: 1_000_000 + opening_inventory,
+                },
+            )
+            yield session, owner, cashier, supplier, product
+    finally:
+        Base.metadata.drop_all(engine)
+        engine.dispose()
+
+
+@pytest.fixture
+def qt_app():
+    return QApplication.instance() or QApplication([])
+
+
+def test_record_tempo_purchase_tracks_debt_due_date_and_stock(
+    purchase_session,
+):
+    session, owner, _cashier, supplier, product = purchase_session
+    service = PurchaseService(session)
+    due_date = date(2026, 11, 1)
+
+    purchase = service.record_purchase(
+        owner,
+        supplier_id=supplier.id,
+        product_id=product.id,
+        quantity=5,
+        unit_cost=11_000,
+        payment_status="TEMPO",
+        due_date=due_date,
+    )
+
+    item = session.scalar(
+        select(PurchaseOrderItem).where(
+            PurchaseOrderItem.purchase_order_id == purchase.id
+        )
+    )
+    movement = session.scalar(
+        select(StockMovement).where(
+            StockMovement.reference_id == purchase.id,
+            StockMovement.reference_type == "PURCHASE_ORDER",
+        )
+    )
+    assert purchase.status == "RECEIVED"
+    assert purchase.payment_status == "TEMPO"
+    assert purchase.subtotal == 55_000
+    assert purchase.paid_amount == 0
+    assert purchase.due_date.date() == due_date
+    assert product.stock_qty == 13
+    assert product.purchase_price == 11_000
+    assert item is not None and item.received_qty == 5
+    assert movement is not None
+    assert movement.stock_before == 8
+    assert movement.stock_after == 13
+    listed = service.list_purchases(owner)
+    assert listed[0]["supplier_name"] == supplier.name
+    assert listed[0]["product_name"] == product.name
+
+
+def test_record_paid_purchase_is_fully_settled(
+    purchase_session,
+):
+    session, owner, _cashier, supplier, product = purchase_session
+    purchase = PurchaseService(session).record_purchase(
+        owner,
+        supplier_id=supplier.id,
+        product_id=product.id,
+        quantity=2,
+        unit_cost=9_000,
+        payment_status="PAID",
+        due_date=date(2026, 11, 1),
+    )
+
+    assert purchase.payment_status == "PAID"
+    assert purchase.paid_amount == purchase.subtotal == 18_000
+    assert purchase.due_date is None
+
+
+def test_tempo_purchase_can_be_marked_paid_and_no_longer_counts_as_debt(
+    purchase_session,
+):
+    session, owner, _cashier, supplier, product = purchase_session
+    service = PurchaseService(session)
+    purchase = service.record_purchase(
+        owner,
+        supplier_id=supplier.id,
+        product_id=product.id,
+        quantity=3,
+        unit_cost=10_000,
+        payment_status="TEMPO",
+        due_date=date(2026, 11, 10),
+    )
+
+    settled = service.mark_paid(owner, purchase.id)
+
+    assert settled.payment_status == "PAID"
+    assert settled.paid_amount == settled.subtotal == 30_000
+    assert settled.due_date.date() == date(2026, 11, 10)
+
+
+def test_tempo_requires_due_date_and_only_owner_can_record(
+    purchase_session,
+):
+    _session, owner, cashier, supplier, product = purchase_session
+    service = PurchaseService(_session)
+    with pytest.raises(ValidationError, match="jatuh tempo wajib"):
+        service.record_purchase(
+            owner,
+            supplier_id=supplier.id,
+            product_id=product.id,
+            quantity=1,
+            unit_cost=10_000,
+            payment_status="TEMPO",
+            due_date=None,
+        )
+    with pytest.raises(AuthorizationError):
+        service.record_purchase(
+            cashier,
+            supplier_id=supplier.id,
+            product_id=product.id,
+            quantity=1,
+            unit_cost=10_000,
+            payment_status="PAID",
+            due_date=None,
+        )
+
+
+def test_purchase_window_lists_demo_purchase_and_debt_summary(
+    purchase_session,
+    qt_app,
+):
+    session, owner, _cashier, supplier, product = purchase_session
+    PurchaseService(session).record_purchase(
+        owner,
+        supplier_id=supplier.id,
+        product_id=product.id,
+        quantity=2,
+        unit_cost=10_000,
+        payment_status="TEMPO",
+        due_date=date(2026, 10, 30),
+    )
+    view = PurchaseView(owner, session)
+
+    assert view.windowTitle() == "Belanja dan Supplier"
+    assert view.supplier_input.count() == 1
+    assert view.product_input.count() == 1
+    assert view.quantity_input.minimum() == 1
+    assert view.payment_status_input.count() == 2
+    assert view.due_date_input.isEnabled() is False
+    assert view.purchase_table.rowCount() == 1
+    assert view.purchase_table.item(0, 2).text() == supplier.name
+    assert view.purchase_table.item(0, 5).text() == "Tempo"
+    assert "Rp 20.000,00" in view.debt_summary.text()
+    view.close()

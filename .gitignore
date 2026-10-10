@@ -1,5 +1,37 @@
-# Object file
-*.o
+# Python environments and caches
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+*.pyc
 
-# Ada Library Information
-*.ali
+# Local configuration, credentials, and signing artifacts
+.env
+.env.*
+!.env.example
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.posreq
+*.poslic
+license-signing-private.pem
+*private-key*
+*private_key*
+*_private.pem
+*-private.pem
+*.p12
+*.pfx
+*.p8
+*.jks
+*.keystore
+
+# Local validation data and generated distributions/installers
+.migration-validation/
+dist/
+build/
+*.exe
+
+# Local reference documents are not part of the application source
+*.pdf

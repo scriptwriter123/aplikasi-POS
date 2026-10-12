@@ -8,6 +8,12 @@ class Settings(BaseSettings):
     app_env: str = "development"
     app_debug: bool = True
     session_timeout_minutes: int = 480
+    midtrans_server_key: str | None = None
+    midtrans_notification_url: str | None = None
+    dana_partner_id: str | None = None
+    dana_merchant_id: str | None = None
+    dana_private_key: str | None = None
+    dana_base_url: str = "https://gateway-mp-sit.dana.id"
 
     model_config = SettingsConfigDict(
         env_file=".env",

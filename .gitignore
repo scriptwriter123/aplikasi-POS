@@ -17,6 +17,7 @@ __pycache__/
 *.posreq
 *.poslic
 license-signing-private.pem
+license_public_key.pem.old
 *private-key*
 *private_key*
 *_private.pem

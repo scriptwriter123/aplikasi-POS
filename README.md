@@ -77,7 +77,7 @@ Untuk membuat installer Windows, instal Inno Setup 6 atau 7, lalu jalankan:
 ```
 
 Skrip membangun ulang aplikasi dan menghasilkan
-`build\installer\POS-Retail-Setup-0.2.0.exe`. Installer memasang aplikasi untuk
+`build\installer\AnjayRetailSoft.exe`. Installer memasang aplikasi untuk
 pengguna Windows saat ini, membuat shortcut Start Menu, dan menawarkan shortcut
 Desktop untuk aplikasi. Shortcut **Folder Data POS** juga dibuat di Desktop dan
 Start Menu untuk membuka `%LOCALAPPDATA%\POSApp\data`. Folder database tidak
@@ -245,6 +245,50 @@ Stok serta mutasi stok bertambah saat pembelian disimpan. Pemilik dapat memilih
 transaksi Tempo lalu **Tandai Lunas** ketika dibayar. Notifikasi jatuh tempo
 belum dibuat. Rekomendasi: tambahkan kartu **Hutang & Jatuh Tempo** pada
 dashboard OWNER untuk daftar jatuh tempo/terlambat.
+
+## Backend QRIS Midtrans (sandbox)
+
+Backend QRIS tahap awal menggunakan Midtrans QRIS POS sandbox. Server Key hanya
+dibaca backend dari environment atau file `.env` lokal; jangan memasukkannya
+ke aplikasi desktop, Git, atau installer. Dependency yang digunakan adalah
+FastAPI, HTTPX, dan Uvicorn. QR image diminta dari URL `generate-qr-code` yang
+dikembalikan Midtrans, dan status pembayaran hanya dianggap lunas jika status
+Midtrans `settlement` serta `fraud_status` bernilai `accept`.
+
+QRIS yang dibuat Midtrans mengikuti standar QRIS, sehingga pelanggan dapat
+memindainya dari aplikasi pembayaran yang mendukung QRIS, termasuk DANA.
+Pembayaran tersebut diproses dan disettle melalui merchant Midtrans yang
+terdaftar; QR ini bukan QR merchant yang dibuat oleh aplikasi DANA dan dana
+tidak otomatis masuk ke saldo DANA.
+
+Salin `.env.example` ke `.env` di root project dan masukkan Server Key sandbox
+yang diperoleh dari akun Midtrans sandbox:
+
+```dotenv
+MIDTRANS_SERVER_KEY=isi_server_key_sandbox
+MIDTRANS_NOTIFICATION_URL=
+```
+
+Jalankan backend pengembangan hanya pada loopback:
+
+```powershell
+.\venv\Scripts\python.exe -m uvicorn app.payments.midtrans_api:app --host 127.0.0.1 --port 8765
+```
+
+Endpoint `GET /health` memeriksa server, `POST /api/payments/qris` membuat
+charge dan mengembalikan gambar QR dalam base64, `GET /api/payments/{order_id}`
+meminta status terbaru langsung ke Midtrans, dan `POST /api/webhooks/midtrans`
+memverifikasi signature notifikasi. Gunakan endpoint OpenAPI lokal
+`http://127.0.0.1:8765/docs` hanya untuk tes development. Jangan mengekspos
+server pengembangan ke internet. Callback Midtrans hanya diterima bila endpoint
+webhook production nantinya memakai HTTPS publik dan `MIDTRANS_NOTIFICATION_URL`
+yang sesuai; endpoint sandbox lokal ini belum merupakan backend production.
+
+Fitur ini saat ini adalah backend sandbox dan belum disambungkan ke checkout
+kasir. Checkout tetap tidak boleh mencatat QRIS sebagai penjualan sebelum
+aplikasi menyimpan transaksi tertunda dengan aman dan memverifikasi status
+provider. Jangan gunakan transaksi produksi atau anggap QR demo sebagai
+pembayaran.
 
 ## Aturan fundamental
 - SQLite: foreign_keys=ON, WAL, busy_timeout=5000

@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app.core.exceptions import AuthenticationError
 from app.core.security import verify_password
@@ -7,6 +7,7 @@ from app.repositories.user_repository import UserRepository
 
 class AuthService:
     MAX_FAILED_ATTEMPTS = 5
+    LOCKOUT_DURATION = timedelta(minutes=15)
 
     def __init__(self, users: UserRepository):
         self.users = users
@@ -23,7 +24,7 @@ class AuthService:
         if not verify_password(password, user.password_hash):
             user.failed_login_count += 1
             if user.failed_login_count >= self.MAX_FAILED_ATTEMPTS:
-                user.locked_until = now
+                user.locked_until = now + self.LOCKOUT_DURATION
             self.users.session.flush()
             raise AuthenticationError("Username atau password salah.")
 

@@ -477,12 +477,13 @@ def test_cart_quantity_is_editable_and_enter_moves_to_next_product(
 
 
 @pytest.mark.parametrize(
-    ("method_index", "method_name"),
-    [(1, "QRIS"), (2, "TRANSFER BANK"), (3, "E-WALLET")],
+    ("method_index", "method_name", "expect_demo"),
+    [(1, "QRIS", False), (2, "TRANSFER BANK", True), (3, "E-WALLET", True)],
 )
 def test_non_cash_payment_shows_demo_qr_and_cannot_be_confirmed(
     method_index: int,
     method_name: str,
+    expect_demo: bool,
     qt_app,
 ):
     dialog = PaymentDialog(25_000)
@@ -497,11 +498,14 @@ def test_non_cash_payment_shows_demo_qr_and_cannot_be_confirmed(
     qt_app.processEvents()
 
     assert dialog.qr_panel.isVisible()
-    assert dialog.qr_title.text() == f"QR {method_name} · DEMO"
-    assert dialog.qr_image.pixmap() is not None
-    assert not dialog.qr_image.pixmap().isNull()
-    assert "Belum dapat dipindai" in dialog.qr_notice.text()
-    assert not dialog.confirm_button.isEnabled()
+    if expect_demo:
+        assert dialog.qr_title.text() == f"QR {method_name} · DEMO"
+        assert "Belum dapat dipindai" in dialog.qr_notice.text()
+        assert not dialog.confirm_button.isEnabled()
+    else:
+        assert dialog.qr_title.text() == "QRIS"
+        assert "Lanjutkan ke QRIS" in dialog.confirm_button.text()
+        assert dialog.confirm_button.isEnabled()
 
     dialog.method_input.setCurrentIndex(0)
     assert not dialog.qr_panel.isVisible()

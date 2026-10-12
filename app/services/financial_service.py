@@ -41,6 +41,21 @@ class FinancialService:
         settings = self.settings()
         return settings is not None and settings.effective_from is not None
 
+    def ensure_auto_initialized(self, actor_id: int | None = None) -> FinancialSettings:
+        settings = self.settings()
+        if settings is not None and settings.effective_from is not None:
+            return settings
+
+        today = date.today()
+        if settings is None:
+            settings = FinancialSettings(id=1)
+            self.session.add(settings)
+        settings.effective_from = today
+        settings.initialized_by = actor_id
+        settings.initialized_at = datetime.now(timezone.utc)
+        self.session.flush()
+        return settings
+
     def accounts(self, account_type: str | None = None) -> list[Account]:
         statement = select(Account).where(Account.is_active.is_(True))
         if account_type:

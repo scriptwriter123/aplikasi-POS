@@ -1,7 +1,12 @@
 from datetime import date
 from hashlib import sha256
+import asyncio
+import logging
+import uuid
 
-from PySide6.QtCore import QEvent, Qt, QTimer, Signal
+logger = logging.getLogger("pos.cashier")
+
+from PySide6.QtCore import QEvent, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import (
     QColor,
     QImage,
@@ -12,6 +17,7 @@ from PySide6.QtGui import (
     QShortcut,
 )
 from PySide6.QtWidgets import (
+    QApplication,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -24,6 +30,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPlainTextEdit,
+    QProgressBar,
     QPushButton,
     QSpinBox,
     QSplitter,
@@ -43,6 +50,7 @@ from app.services.sales_service import SalesService
 from app.services.bulk_pricing_service import BulkPricingService
 from app.services.cashier_daily_report_service import CashierDailyReportService
 from app.services.shift_service import ShiftService
+from app.services.payment_service import PaymentService, PaymentServiceError
 from app.utils.formatters import rupiah
 from app.ui.widgets import create_copyright_label
 
@@ -97,6 +105,7 @@ class CashierView(QWidget):
         self.daily_reports = CashierDailyReportService(session)
         self.shift_service = ShiftService(session, ShiftRepository(session))
         self.receipt_printer = ReceiptPrinter()
+        self.payment_service = PaymentService()
         self.cart = {}
 
         root = QVBoxLayout(self)
@@ -614,6 +623,10 @@ class CashierView(QWidget):
             return
         method, amount = payment_dialog.payment()
 
+        if method == "QRIS":
+            self._checkout_qris(total)
+            return
+
         try:
             sale = self._save_sale(total, method, amount)
         except POSException as exc:
@@ -650,6 +663,93 @@ class CashierView(QWidget):
             f"Invoice: {sale.invoice_no}\n"
             f"Total: {rupiah(total)}\n"
             f"Kembalian: {rupiah(change)}",
+        )
+        self.search_input.setFocus()
+
+    def _checkout_qris(self, total: int):
+        import uuid
+        order_id = f"POS-{uuid.uuid4().hex[:12].upper()}"
+        self.status_label.setText("Membuat QRIS...")
+        QApplication.processEvents()
+
+        try:
+            qris_result = asyncio.run(
+                self.payment_service.create_qris_payment(order_id, total)
+            )
+            logger.debug("QRIS result: %s", qris_result)
+        except PaymentServiceError as exc:
+            self._show_error("Gagal membuat QRIS", str(exc))
+            return
+        except Exception as exc:
+            self._show_error("Gagal membuat QRIS", str(exc))
+            return
+
+        qr_base64 = qris_result.get("qr_image_base64")
+        qr_content_type = qris_result.get("qr_image_content_type", "image/png")
+        transaction_id = qris_result.get("transaction_id")
+        logger.debug("qr_base64 length: %s", len(qr_base64) if qr_base64 else 0)
+        logger.debug("qr_content_type: %s", qr_content_type)
+
+        if not qr_base64:
+            self._show_error("QRIS gagal", "Midtrans tidak mengembalikan gambar QR.")
+            return
+
+        qr_dialog = QRISPaymentDialog(
+            order_id=order_id,
+            total=total,
+            qr_base64=qr_base64,
+            qr_content_type=qr_content_type,
+            parent=self,
+        )
+        qr_dialog.payment_completed.connect(self._on_qris_payment_completed)
+        qr_dialog.exec()
+
+    @Slot(dict)
+    def _on_qris_payment_completed(self, payment_result: dict):
+        if not payment_result.get("paid"):
+            self._show_error("Pembayaran QRIS gagal", f"Status: {payment_result.get('status', 'unknown')}")
+            return
+
+        total = sum(
+            self.bulk_pricing.unit_price(entry["product"], entry["qty"])
+            * entry["qty"]
+            for entry in self.cart.values()
+        )
+        try:
+            sale = self._save_sale(total, "QRIS", total)
+        except POSException as exc:
+            self._show_error("Transaksi tidak dapat diselesaikan", str(exc))
+            self._refresh_shift_status()
+            return
+        except (SQLAlchemyError, ValueError, KeyError) as exc:
+            self._show_error("Transaksi gagal", str(exc))
+            return
+
+        try:
+            receipt_data = self._build_receipt_data(
+                sale,
+                "QRIS",
+                total,
+                0,
+            )
+        except (SQLAlchemyError, RuntimeError) as exc:
+            receipt_data = None
+            self._show_error(
+                "Transaksi berhasil, data struk gagal dimuat",
+                str(exc),
+            )
+        self.cart.clear()
+        self._update_cart_view()
+        self._refresh_daily_sales()
+        self.status_label.setText(f"Transaksi {sale.invoice_no} berhasil.")
+        if receipt_data is not None:
+            self._offer_receipt_output(receipt_data)
+        QMessageBox.information(
+            self,
+            "Transaksi QRIS berhasil",
+            f"Invoice: {sale.invoice_no}\n"
+            f"Total: {rupiah(total)}\n"
+            f"Metode: QRIS",
         )
         self.search_input.setFocus()
 
@@ -906,17 +1006,26 @@ class PaymentDialog(QDialog):
     def _update_method_display(self):
         method = self.method_input.currentData()
         is_cash = method == "CASH"
+        is_qris = method == "QRIS"
         self.qr_panel.setVisible(not is_cash)
-        self.amount_input.setEnabled(is_cash)
-        self.confirm_button.setEnabled(is_cash)
+        self.amount_input.setEnabled(is_cash or is_qris)
+        self.confirm_button.setEnabled(is_cash or is_qris)
 
         if is_cash:
             self.confirm_button.setText("Konfirmasi Tunai")
             return
+        if is_qris:
+            self.amount_input.setText(str(self.total))
+            self.confirm_button.setText("Lanjutkan ke QRIS")
+            self.qr_title.setText("QRIS")
+            self.qr_image.setPixmap(_make_demo_qr_pixmap("QRIS"))
+            self.qr_notice.setText(
+                "Pilih 'Lanjutkan ke QRIS' untuk membuat QR code pembayaran."
+            )
+            return
 
         self.amount_input.setText(str(self.total))
         method_names = {
-            "QRIS": "QRIS",
             "BANK": "TRANSFER BANK",
             "EWALLET": "E-WALLET",
         }
@@ -925,28 +1034,143 @@ class PaymentDialog(QDialog):
         self.confirm_button.setText("Belum tersedia")
 
     def _validate_and_accept(self):
-        if self.method_input.currentData() != "CASH":
-            return
+        method = self.method_input.currentData()
+        if method == "CASH":
+            try:
+                amount = int(self.amount_input.text())
+            except ValueError:
+                QMessageBox.warning(self, "Nominal tidak valid", "Masukkan nominal berupa angka.")
+                return
+            if amount < self.total:
+                QMessageBox.warning(
+                    self,
+                    "Pembayaran kurang",
+                    "Nominal pembayaran harus sama dengan atau lebih dari total tagihan.",
+                )
+                return
+            self.accept()
+        elif method == "QRIS":
+            self.amount_input.setText(str(self.total))
+            self.accept()
+        else:
+            QMessageBox.information(
+                self,
+                "Belum tersedia",
+                f"Metode {method} belum tersedia. Silakan pilih Tunai atau QRIS.",
+            )
+
+
+class QRISPaymentDialog(QDialog):
+    payment_completed = Signal(dict)
+
+    def __init__(
+        self,
+        order_id: str,
+        total: int,
+        qr_base64: str,
+        qr_content_type: str,
+        parent=None,
+    ):
+        super().__init__(parent)
+        self.setWindowTitle("Pembayaran QRIS")
+        self.setModal(True)
+        self.setMinimumWidth(380)
+        self.order_id = order_id
+        self.total = total
+        self._poll_timer = QTimer(self)
+        self._poll_timer.setInterval(3000)
+        self._poll_timer.timeout.connect(self._poll_payment_status)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(12)
+
+        title = QLabel(f"Total: {rupiah(total)}")
+        title.setStyleSheet("font-size: 20px; font-weight: 700; color: #0f172a;")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title)
+
+        self.qr_label = QLabel()
+        self.qr_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.qr_label.setFixedSize(260, 260)
+        self._set_qr_image(qr_base64, qr_content_type)
+        layout.addWidget(self.qr_label, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        self.status_label = QLabel("Menunggu pembayaran QRIS...")
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.status_label.setStyleSheet("font-size: 14px; color: #475569;")
+        layout.addWidget(self.status_label)
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 0)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setFixedHeight(4)
+        layout.addWidget(self.progress_bar)
+
+        self.cancel_button = QPushButton("Batal")
+        self.cancel_button.setStyleSheet(
+            "QPushButton { background: #dc2626; color: white; border: none; "
+            "border-radius: 8px; padding: 10px 20px; font-weight: 600; }"
+            "QPushButton:hover { background: #b91c1c; }"
+        )
+        self.cancel_button.clicked.connect(self._cancel_payment)
+        layout.addWidget(self.cancel_button, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        layout.addWidget(
+            create_copyright_label(self),
+            alignment=Qt.AlignmentFlag.AlignRight,
+        )
+
+        self._poll_timer.start()
+
+    def _set_qr_image(self, base64_str: str, content_type: str):
+        import base64
+        logger.debug("Decoding QR: content_type=%s, base64_len=%s", content_type, len(base64_str))
         try:
-            amount = int(self.amount_input.text())
-        except ValueError:
-            QMessageBox.warning(self, "Nominal tidak valid", "Masukkan nominal berupa angka.")
-            return
-        if amount < self.total:
-            QMessageBox.warning(
-                self,
-                "Pembayaran kurang",
-                "Nominal pembayaran harus sama dengan atau lebih dari total tagihan.",
+            image_data = base64.b64decode(base64_str)
+            logger.debug("Decoded image data length: %s", len(image_data))
+            image = QImage.fromData(image_data, content_type.encode("ascii"))
+            if image.isNull():
+                self.qr_label.setText("Gagal memuat QR code")
+                logger.debug("QImage is null!")
+                return
+            logger.debug("QImage size: %s", image.size())
+            pixmap = QPixmap.fromImage(image).scaled(
+                260, 260,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
             )
-            return
-        if self.method_input.currentData() != "CASH" and amount != self.total:
-            QMessageBox.warning(
-                self,
-                "Nominal pembayaran tidak sesuai",
-                "Pembayaran non-tunai harus sama dengan total tagihan.",
-            )
-            return
-        self.accept()
+            self.qr_label.setPixmap(pixmap)
+            logger.debug("QR code set successfully")
+        except Exception as e:
+            logger.debug("Error decoding QR: %s", e)
+            self.qr_label.setText(f"Error: {e}")
+
+    def _poll_payment_status(self):
+        self.status_label.setText("Memeriksa status pembayaran...")
+        try:
+            from app.services.payment_service import PaymentService
+            service = PaymentService()
+            result = asyncio.run(service.check_payment_status(self.order_id))
+            if result.get("paid"):
+                self._poll_timer.stop()
+                self.payment_completed.emit(result)
+                self.accept()
+            elif result.get("status") in ("failed", "cancelled", "expired"):
+                self._poll_timer.stop()
+                self.status_label.setText(f"Pembayaran {result.get('status')}")
+                QMessageBox.warning(self, "Pembayaran Gagal", f"Status: {result.get('status')}")
+                self.reject()
+        except Exception as exc:
+            self.status_label.setText(f"Error: {exc}")
+
+    def _cancel_payment(self):
+        self._poll_timer.stop()
+        self.reject()
+
+    def closeEvent(self, event):
+        self._poll_timer.stop()
+        super().closeEvent(event)
 
 
 def _make_demo_qr_pixmap(method: str, size: int = 220) -> QPixmap:

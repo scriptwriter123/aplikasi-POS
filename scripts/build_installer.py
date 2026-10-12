@@ -85,7 +85,9 @@ def main() -> None:
         cwd=PROJECT_ROOT,
         check=True,
     )
-    installer = output_dir / f"POS-Retail-Setup-{APP_VERSION}.exe"
+    installer = output_dir / "AnjayRetailSoft.exe"
+    if not installer.is_file():
+        raise FileNotFoundError(f"Hasil build installer tidak ditemukan: {installer}")
     print(f"Installer selesai: {installer}")
     print("Database pengguna tetap disimpan di %LOCALAPPDATA%\\POSApp\\data.")
 

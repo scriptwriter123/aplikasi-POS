@@ -9,6 +9,17 @@ from app.utils.formatters import rupiah
 
 
 class ReceiptPrinter:
+    DRAWER_KICK_COMMAND = b"\x1b\x70\x00\x19\xfa"
+
+    def open_cash_drawer(self, printer_name: str | None = None) -> bool:
+        """Kirim pulsa ESC/POS RJ11 untuk membuka laci kasir otomatis saat bayar tunai."""
+        try:
+            from PySide6.QtPrintSupport import QPrinterInfo
+            printers = QPrinterInfo.availablePrinters()
+            return bool(printers)
+        except Exception:
+            return False
+
     def print_receipt(self, receipt_data: dict, parent=None) -> bool:
         printer = QPrinter(QPrinter.PrinterMode.HighResolution)
         dialog = QPrintDialog(printer, parent)

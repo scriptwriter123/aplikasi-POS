@@ -23,7 +23,10 @@ class SalesService:
         self.financial = FinancialService(session)
 
     def checkout(self, sale: Sale, items: list[dict], payments: list[dict]):
-        self.financial.require_initialized()
+        if not self.financial.is_initialized():
+            self.financial.ensure_auto_initialized(sale.cashier_id)
+        else:
+            self.financial.require_initialized()
         paid_amount = sum(int(payment["amount"]) for payment in payments)
         if paid_amount < sale.grand_total:
             raise PaymentIncompleteError("Pembayaran belum lunas.")
@@ -150,6 +153,52 @@ class SalesService:
             .order_by(Sale.created_at.desc(), Sale.id.desc())
         )
         return list(self.session.scalars(statement))
+
+    def refund_sale(self, sale_id: int, reason: str = "") -> Sale:
+        sale = self.session.get(Sale, sale_id)
+        if sale is None:
+            raise ValueError("Transaksi tidak ditemukan.")
+        if sale.status == "REFUNDED":
+            raise ValueError("Transaksi ini sudah pernah dibatalkan / direfund.")
+
+        sale.status = "REFUNDED"
+        items = list(self.session.scalars(
+            select(SaleItem).where(SaleItem.sale_id == sale.id)
+        ))
+        for item in items:
+            product = self.session.get(Product, item.product_id)
+            if product is not None:
+                stock_before = product.stock_qty
+                product.stock_qty += item.qty
+                self.session.add(
+                    StockMovement(
+                        product_id=product.id,
+                        movement_type="REFUND",
+                        stock_before=stock_before,
+                        qty=item.qty,
+                        stock_after=product.stock_qty,
+                        reference_type="SALE_REFUND",
+                        reference_id=sale.id,
+                        note=f"Retur/Refund invoice {sale.invoice_no}: {reason}".strip(),
+                    )
+                )
+
+        self.session.add(
+            AuditLog(
+                user_id=sale.cashier_id,
+                action="SALE_REFUNDED",
+                entity_type="Sale",
+                entity_id=sale.id,
+                detail=f"Refund invoice {sale.invoice_no}; alasan: {reason}".strip(),
+            )
+        )
+        try:
+            self.session.commit()
+            self.session.refresh(sale)
+        except Exception:
+            self.session.rollback()
+            raise
+        return sale
 
     @staticmethod
     def new_invoice_number() -> str:

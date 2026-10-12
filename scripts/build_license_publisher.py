@@ -78,7 +78,7 @@ def main() -> None:
             "--onefile",
             "--windowed",
             "--name",
-            "POS-License-Publisher",
+            "AnjayLicensePublisher",
             "--distpath",
             str(OUTPUT_DIR),
             "--workpath",
@@ -92,7 +92,7 @@ def main() -> None:
         cwd=PROJECT_ROOT,
         check=True,
     )
-    print(f"Tool penerbit lisensi: {OUTPUT_DIR / 'POS-License-Publisher.exe'}")
+    print(f"Tool penerbit lisensi: {OUTPUT_DIR / 'AnjayLicensePublisher.exe'}")
     print("Tool ini tidak disertakan dalam installer POS.")
 
 

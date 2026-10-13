@@ -100,11 +100,13 @@ gunakan `python scripts\build_installer.py --debug-console`.
 
 ### Tautan unduhan dan QR
 
-Rilis installer dipublikasikan di GitHub Releases. Tautan berikut selalu
-menunjuk ke installer terbaru, berapapun versinya:
+Rilis installer dipublikasikan di repo publik
+[`scriptwriter123/pos-downloads`](https://github.com/scriptwriter123/pos-downloads)
+(hanya berisi rilis, tanpa source code). Tautan berikut selalu menunjuk ke
+installer terbaru, berapapun versinya:
 
 ```
-https://github.com/scriptwriter123/aplikasi-POS/releases/latest/download/AnjayRetailSoft.exe
+https://github.com/scriptwriter123/pos-downloads/releases/latest/download/AnjayRetailSoft.exe
 ```
 
 QR code untuk tautan itu ada di `docs/qr-download.png`, dengan versi vektor

@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     dana_merchant_id: str | None = None
     dana_private_key: str | None = None
     dana_base_url: str = "https://gateway-mp-sit.dana.id"
+    pos_data_dir: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -22,8 +23,13 @@ class Settings(BaseSettings):
 
     @property
     def data_dir(self) -> Path:
-        base = Path(os.getenv("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
-        path = base / self.app_name / "data"
+        if self.pos_data_dir:
+            path = Path(self.pos_data_dir).expanduser()
+            if not path.is_absolute():
+                path = Path.cwd() / path
+        else:
+            base = Path(os.getenv("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+            path = base / self.app_name / "data"
         path.mkdir(parents=True, exist_ok=True)
         return path
 

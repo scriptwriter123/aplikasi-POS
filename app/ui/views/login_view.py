@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 from app.core.exceptions import ValidationError
 from app.models import Store
 from app.services.owner_setup_service import OwnerSetupService
+from app.ui.theme import PALETTE, add_card_shadow, apply_theme
 from app.ui.widgets import create_copyright_label
 
 
@@ -30,6 +31,8 @@ class LoginView(QWidget):
         setup_service: OwnerSetupService | None = None,
     ):
         super().__init__(parent)
+        self.setObjectName("loginRoot")
+        apply_theme(self)
         self.auth_service = auth_service
         self.setup_service = setup_service
         self.store = store
@@ -45,23 +48,32 @@ class LoginView(QWidget):
         self.store_name_label = QLabel()
         self.store_name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.store_name_label.setStyleSheet(
-            "font-size: 25px; font-weight: 700; color: #1d4ed8;"
+            f"font-size: 25px; font-weight: 700; color: {PALETTE['text']};"
+            " background: transparent;"
         )
         self.store_slogan_label = QLabel()
         self.store_slogan_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.store_slogan_label.setStyleSheet(
-            "font-size: 18px; font-weight: 600; color: #2563eb;"
+            f"font-size: 18px; font-weight: 600; color: {PALETTE['accent_soft']};"
+            " background: transparent;"
         )
         self.store_address_label = QLabel()
         self.store_address_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.store_address_label.setWordWrap(True)
-        self.store_address_label.setStyleSheet("font-size: 14px; color: #3b82f6;")
+        self.store_address_label.setStyleSheet(
+            f"font-size: 14px; color: {PALETTE['text_muted']};"
+            " background: transparent;"
+        )
         self.store_whatsapp_label = QLabel()
         self.store_whatsapp_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.store_whatsapp_label.setStyleSheet("font-size: 14px; color: #3b82f6;")
+        self.store_whatsapp_label.setStyleSheet(
+            f"font-size: 14px; color: {PALETTE['text_muted']};"
+            " background: transparent;"
+        )
         self.store_profile = QWidget(self)
+        self.store_profile.setObjectName("headerPanel")
         store_profile_layout = QVBoxLayout(self.store_profile)
-        store_profile_layout.setContentsMargins(0, 0, 0, 0)
+        store_profile_layout.setContentsMargins(18, 16, 18, 16)
         store_profile_layout.setSpacing(3)
         store_profile_layout.addWidget(
             self.store_logo_label,
@@ -73,6 +85,7 @@ class LoginView(QWidget):
         store_profile_layout.addWidget(self.store_whatsapp_label)
         root.addWidget(self.store_profile)
         self.update_store_profile(store)
+        add_card_shadow(self.store_profile, offset=6, blur=24)
 
         self.username = QLineEdit()
         self.password = QLineEdit()
@@ -83,17 +96,27 @@ class LoginView(QWidget):
         self.password.returnPressed.connect(self._login)
 
         self.login_panel = QWidget(self)
+        self.login_panel.setObjectName("cardPanel")
         form = QFormLayout()
+        form.setContentsMargins(20, 20, 20, 20)
+        form.setHorizontalSpacing(14)
+        form.setVerticalSpacing(12)
         form.addRow("Username", self.username)
         form.addRow("Password", self.password)
         form.addRow(login_button)
         self.login_panel.setLayout(form)
         root.addWidget(self.login_panel)
+        add_card_shadow(self.login_panel)
 
         self.setup_panel = QWidget(self)
+        self.setup_panel.setObjectName("cardPanel")
         setup_layout = QVBoxLayout(self.setup_panel)
+        setup_layout.setContentsMargins(20, 20, 20, 20)
+        setup_layout.setSpacing(12)
         setup_layout.addWidget(QLabel("Buat akun OWNER untuk memulai aplikasi."))
         setup_form = QFormLayout()
+        setup_form.setHorizontalSpacing(14)
+        setup_form.setVerticalSpacing(12)
         self.setup_username = QLineEdit()
         self.setup_username.setMaxLength(80)
         self.setup_username.setPlaceholderText("Contoh: owner")
@@ -120,6 +143,7 @@ class LoginView(QWidget):
         setup_button.clicked.connect(self._create_owner)
         setup_layout.addWidget(setup_button)
         root.addWidget(self.setup_panel)
+        add_card_shadow(self.setup_panel)
 
         setup_required = bool(
             setup_service is not None and setup_service.setup_required()
@@ -130,7 +154,12 @@ class LoginView(QWidget):
         root.addStretch(1)
         footer = QHBoxLayout()
         footer.addStretch(1)
-        footer.addWidget(create_copyright_label(self))
+        copyright_label = create_copyright_label(self)
+        copyright_label.setStyleSheet(
+            f"color: {PALETTE['text_muted']}; font-size: 10px;"
+            " font-weight: 600; padding: 3px 8px; background: transparent;"
+        )
+        footer.addWidget(copyright_label)
         root.addLayout(footer)
         self.resize(600, 680)
 

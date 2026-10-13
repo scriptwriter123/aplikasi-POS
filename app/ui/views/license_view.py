@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.services.license_service import LicenseError, LicenseService
+from app.ui.theme import PALETTE
 from app.ui.widgets import create_copyright_label
 
 
@@ -22,6 +23,7 @@ class LicenseView(QWidget):
 
     def __init__(self, license_service: LicenseService, parent=None):
         super().__init__(parent)
+        self.setObjectName("licenseRoot")
         self.license_service = license_service
         self.setWindowTitle("Aktivasi Lisensi — POS Retail")
         self.resize(620, 390)
@@ -32,7 +34,7 @@ class LicenseView(QWidget):
 
         heading = QLabel("Aktivasi Lisensi POS Retail")
         heading.setStyleSheet(
-            "font-size: 24px; font-weight: 700; color: #172554;"
+            f"font-size: 24px; font-weight: 700; color: {PALETTE['text']};"
         )
         root.addWidget(heading)
 
@@ -66,9 +68,9 @@ class LicenseView(QWidget):
         request_button.clicked.connect(self._save_request)
         import_button = QPushButton("Pilih File Lisensi")
         import_button.setStyleSheet(
-            "QPushButton { background: #1d4ed8; color: white; border: none; "
-            "border-radius: 8px; padding: 10px 16px; font-weight: 600; }"
-            "QPushButton:hover { background: #1e40af; }"
+            f"QPushButton {{ background: {PALETTE['accent']}; color: white; border: none; "
+            f"border-radius: 8px; padding: 10px 16px; font-weight: 600; }}"
+            f"QPushButton:hover {{ background: {PALETTE['accent_hover']}; }}"
         )
         import_button.clicked.connect(self._import_license)
         actions.addWidget(request_button)

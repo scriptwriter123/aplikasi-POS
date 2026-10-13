@@ -197,7 +197,7 @@ class FinancialView(QWidget):
         self.back_button = back
         back.clicked.connect(self.back_requested.emit)
         title = QLabel("Laporan Keuangan")
-        title.setStyleSheet("font-size: 25px; font-weight: 700; color: #172554;")
+        title.setStyleSheet("font-size: 25px; font-weight: 700; color: #ffffff;")
         header.addWidget(back)
         header.addWidget(title)
         header.addStretch(1)
@@ -206,7 +206,7 @@ class FinancialView(QWidget):
         self.setup_status = QLabel()
         self.setup_status.setWordWrap(True)
         self.setup_status.setStyleSheet(
-            "color: #9a3412; background: #fff7ed; padding: 8px; "
+            "color: #fdba74; background: #3a2410; padding: 8px; "
             "border-radius: 6px;"
         )
         root.addWidget(self.setup_status)
@@ -252,7 +252,7 @@ class FinancialView(QWidget):
         self.summary_label = QLabel()
         self.summary_label.setWordWrap(True)
         self.summary_label.setStyleSheet(
-            "font-weight: 700; color: #0f172a; padding: 4px;"
+            "font-weight: 700; color: #ffffff; padding: 4px;"
         )
         root.addWidget(self.summary_label)
         self.report_table = QTableWidget(0, 0)
@@ -266,7 +266,7 @@ class FinancialView(QWidget):
 
         self.expense_heading = QLabel("Daftar Pengeluaran")
         self.expense_heading.setStyleSheet(
-            "font-size: 17px; font-weight: 700; color: #172554;"
+            "font-size: 17px; font-weight: 700; color: #ffffff;"
         )
         root.addWidget(self.expense_heading)
         self.expense_table = QTableWidget(0, 7)
@@ -315,7 +315,7 @@ class FinancialView(QWidget):
             self.pay_expense_button.setEnabled(initialized)
             if settings is not None and settings.effective_from is not None:
                 self.setup_status.setStyleSheet(
-                    "color: #166534; background: #f0fdf4; padding: 8px; "
+                    "color: #86efac; background: #12291b; padding: 8px; "
                     "border-radius: 6px;"
                 )
                 self.setup_status.setText(

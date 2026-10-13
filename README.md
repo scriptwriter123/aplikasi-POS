@@ -41,6 +41,20 @@ akun demo, data contoh, atau database milik komputer pembuat. Schema dibuat
 saat aplikasi dijalankan; data disimpan terpisah di
 `%LOCALAPPDATA%\POSApp\data\`.
 
+Lokasi data dapat dipindah ke satu folder bersama dengan environment variable
+`POS_DATA_DIR` (atau entri `POS_DATA_DIR=` pada file `.env`), misalnya saat POS
+dijalankan di server Remote Desktop Services (RDS) agar semua sesi memakai
+database, file lisensi, dan logo toko yang sama:
+
+```powershell
+setx POS_DATA_DIR "D:\POSData"
+```
+
+Folder dibuat otomatis bila belum ada; bila tidak ditentukan, perilaku lama
+tetap berlaku. Migrasi database, aktivasi lisensi, `installation-id.txt`, dan
+logo toko semuanya mengikuti lokasi ini. Gunakan disk lokal server, bukan folder
+berbagi jaringan, karena SQLite membutuhkan filesystem lokal.
+
 Untuk membuat folder aplikasi Windows:
 ```powershell
 python scripts\build.py

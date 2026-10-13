@@ -40,7 +40,7 @@ class DashboardView(QWidget):
         self.logout_button.setStyleSheet(
             "QPushButton { background: #dc2626; color: white; border: none; "
             "border-radius: 8px; padding: 9px 16px; font-weight: 600; }"
-            "QPushButton:hover { background: #b91c1c; }"
+            "QPushButton:hover { background: #ef4444; }"
         )
         heading_row.addWidget(self.logout_button)
         root.addLayout(heading_row)
@@ -55,22 +55,22 @@ class DashboardView(QWidget):
         self.store_name_label = QLabel()
         self.store_name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.store_name_label.setStyleSheet(
-            "font-size: 25px; font-weight: 700; color: #1d4ed8;"
+            "font-size: 25px; font-weight: 700; color: #89b4fa;"
         )
         self.store_slogan_label = QLabel()
         self.store_slogan_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.store_slogan_label.setStyleSheet(
-            "font-size: 18px; font-weight: 600; color: #2563eb;"
+            "font-size: 18px; font-weight: 600; color: #89b4fa;"
         )
         self.store_address_label = QLabel()
         self.store_address_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.store_address_label.setStyleSheet(
-            "font-size: 16px; color: #3b82f6;"
+            "font-size: 16px; color: #89b4fa;"
         )
         self.store_whatsapp_label = QLabel()
         self.store_whatsapp_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.store_whatsapp_label.setStyleSheet(
-            "font-size: 16px; color: #3b82f6;"
+            "font-size: 16px; color: #89b4fa;"
         )
         store_profile_layout.addWidget(
             self.store_logo_label,
@@ -85,14 +85,14 @@ class DashboardView(QWidget):
 
         welcome_row = QHBoxLayout()
         subtitle = QLabel(f"Selamat datang, {user.full_name}")
-        subtitle.setStyleSheet("font-size: 14px; color: #64748b;")
+        subtitle.setStyleSheet("font-size: 14px; color: #a1a1aa;")
         welcome_row.addWidget(subtitle)
         welcome_row.addStretch(1)
 
         role_label = QLabel(role_name)
         role_label.setStyleSheet(
-            "font-size: 11px; font-weight: 700; color: #1d4ed8; "
-            "background: #dbeafe; padding: 4px 8px; border-radius: 8px;"
+            "font-size: 11px; font-weight: 700; color: #89b4fa; "
+            "background: #0e2f4a; padding: 4px 8px; border-radius: 8px;"
         )
         role_label.setMaximumWidth(150)
         welcome_row.addWidget(role_label)
@@ -192,7 +192,7 @@ class DashboardView(QWidget):
         card = QFrame()
         card.setObjectName("dashboardCard")
         card.setStyleSheet(
-            "QFrame#dashboardCard { background: white; border: 1px solid #e2e8f0; "
+            "QFrame#dashboardCard { background: #1a1a1e; border: 1px solid #2d2d34; "
             "border-radius: 14px; }"
             "QLabel { border: none; background: transparent; }"
         )
@@ -200,15 +200,15 @@ class DashboardView(QWidget):
         layout.setContentsMargins(14, 10, 14, 10)
         layout.setSpacing(6)
         title_label = QLabel(title)
-        title_label.setStyleSheet("font-size: 15px; font-weight: 700; color: #0f172a;")
+        title_label.setStyleSheet("font-size: 15px; font-weight: 700; color: #ffffff;")
         description_label = QLabel(description)
         description_label.setWordWrap(True)
-        description_label.setStyleSheet("font-size: 12px; color: #64748b;")
+        description_label.setStyleSheet("font-size: 12px; color: #a1a1aa;")
         action_button = QPushButton(action)
         action_button.setStyleSheet(
-            "QPushButton { background: #1d4ed8; color: white; border: none; "
+            "QPushButton { background: #007acc; color: white; border: none; "
             "border-radius: 7px; padding: 7px 10px; font-weight: 600; }"
-            "QPushButton:hover { background: #1e40af; }"
+            "QPushButton:hover { background: #0098ff; }"
         )
         action_button.clicked.connect(callback)
         layout.addWidget(title_label)

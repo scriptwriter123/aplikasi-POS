@@ -48,13 +48,13 @@ class FileDropFrame(QFrame):
         self.setAcceptDrops(True)
         self.setFrameShape(QFrame.Shape.StyledPanel)
         self.setStyleSheet(
-            "QFrame { border: 2px dashed #94a3b8; border-radius: 8px; "
-            "background: #f8fafc; }"
+            "QFrame { border: 2px dashed #3f3f4a; border-radius: 8px; "
+            "background: #1a1a1e; }"
         )
         layout = QVBoxLayout(self)
         label = QLabel(hint)
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        label.setStyleSheet("color: #475569; border: none;")
+        label.setStyleSheet("color: #e4e4e7; border: none;")
         layout.addWidget(label)
 
     def dragEnterEvent(self, event):
@@ -136,7 +136,7 @@ class ProductFileImportDialog(QDialog):
         actions.addStretch(1)
         self.import_button = QPushButton("Import")
         self.import_button.setStyleSheet(
-            "QPushButton { background: #15803d; color: white; border: none; "
+            "QPushButton { background: #16a34a; color: white; border: none; "
             "border-radius: 8px; padding: 9px 16px; font-weight: 600; }"
         )
         self.import_button.setEnabled(False)
@@ -379,7 +379,7 @@ class BulkPriceDialog(QDialog):
 
         self.regular_price_label = QLabel("-")
         self.regular_price_label.setStyleSheet(
-            "font-weight: 600; color: #334155;"
+            "font-weight: 600; color: #e4e4e7;"
         )
         form.addRow("Harga satuan saat ini", self.regular_price_label)
 
@@ -407,7 +407,7 @@ class BulkPriceDialog(QDialog):
             "lain akan dihitung otomatis."
         )
         price_hint.setWordWrap(True)
-        price_hint.setStyleSheet("color: #64748b;")
+        price_hint.setStyleSheet("color: #a1a1aa;")
         form.addRow("", price_hint)
         layout.addLayout(form)
 
@@ -435,7 +435,7 @@ class BulkPriceDialog(QDialog):
         actions.addStretch(1)
         self.save_button = QPushButton("Simpan")
         self.save_button.setStyleSheet(
-            "QPushButton { background: #1d4ed8; color: white; border: none; "
+            "QPushButton { background: #007acc; color: white; border: none; "
             "border-radius: 8px; padding: 9px 14px; font-weight: 600; }"
         )
         self.save_button.clicked.connect(self._save_rule)
@@ -729,7 +729,7 @@ class ProductFormDialog(QDialog):
         self.bulk_flow_label = QLabel()
         self.bulk_flow_label.setWordWrap(True)
         self.bulk_flow_label.setStyleSheet(
-            "color: #1e3a8a; background: #eff6ff; padding: 8px; "
+            "color: #93c5fd; background: #12263a; padding: 8px; "
             "border-radius: 6px;"
         )
         bulk_form.addRow("Alur harga", self.bulk_flow_label)
@@ -739,7 +739,7 @@ class ProductFormDialog(QDialog):
         bulk_form.addRow("Berlaku mulai qty (≥)", self.bulk_threshold_input)
         self.bulk_regular_price_label = QLabel()
         self.bulk_regular_price_label.setStyleSheet(
-            "font-weight: 600; color: #334155;"
+            "font-weight: 600; color: #e4e4e7;"
         )
         bulk_form.addRow("Harga satuan normal", self.bulk_regular_price_label)
         self.bulk_pricing_mode = "PERCENT"
@@ -759,7 +759,7 @@ class ProductFormDialog(QDialog):
             "dihitung otomatis dari harga jual normal."
         )
         bulk_help.setWordWrap(True)
-        bulk_help.setStyleSheet("color: #64748b;")
+        bulk_help.setStyleSheet("color: #a1a1aa;")
         bulk_form.addRow("", bulk_help)
         self.bulk_enabled_input.toggled.connect(
             self._set_bulk_inputs_enabled
@@ -778,7 +778,7 @@ class ProductFormDialog(QDialog):
             "produk yang sudah ada dilakukan lewat transaksi stok agar tercatat."
         )
         note.setWordWrap(True)
-        note.setStyleSheet("color: #64748b;")
+        note.setStyleSheet("color: #a1a1aa;")
         layout.addWidget(note)
 
         buttons = QDialogButtonBox(
@@ -1044,7 +1044,7 @@ class MasterDataView(QWidget):
         back_button = create_dashboard_back_button(self)
         back_button.clicked.connect(self.back_requested.emit)
         title = QLabel("Master Data Produk")
-        title.setStyleSheet("font-size: 25px; font-weight: 700; color: #172554;")
+        title.setStyleSheet("font-size: 25px; font-weight: 700; color: #ffffff;")
         header.addWidget(back_button)
         header.addWidget(title)
         header.addStretch(1)
@@ -1055,14 +1055,14 @@ class MasterDataView(QWidget):
             "Produk aktif langsung tersedia pada pencarian kasir."
         )
         description.setWordWrap(True)
-        description.setStyleSheet("color: #64748b;")
+        description.setStyleSheet("color: #a1a1aa;")
         root.addWidget(description)
 
         actions = QHBoxLayout()
         create_button_style = (
-            "QPushButton { background: #1d4ed8; color: white; border: none; "
+            "QPushButton { background: #007acc; color: white; border: none; "
             "border-radius: 8px; padding: 9px 14px; font-weight: 600; }"
-            "QPushButton:hover { background: #1e40af; }"
+            "QPushButton:hover { background: #0098ff; }"
         )
         edit_button_style = (
             "QPushButton { background: #facc15; color: #422006; border: none; "
@@ -1087,10 +1087,10 @@ class MasterDataView(QWidget):
             QToolButton.ToolButtonPopupMode.InstantPopup
         )
         self.import_button.setStyleSheet(
-            "QToolButton { background: #1d4ed8; color: white; border: none; "
+            "QToolButton { background: #007acc; color: white; border: none; "
             "border-radius: 8px; padding: 9px 14px; font-weight: 600; }"
-            "QToolButton:hover { background: #1e40af; }"
-            "QToolButton:pressed { background: #1e3a8a; }"
+            "QToolButton:hover { background: #0098ff; }"
+            "QToolButton:pressed { background: #005995; }"
             "QToolButton::menu-indicator { image: none; }"
         )
         import_menu = QMenu(self.import_button)

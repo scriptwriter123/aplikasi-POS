@@ -45,7 +45,7 @@ class PurchaseView(QWidget):
         self.back_button = QPushButton("← Dashboard")
         self.back_button.clicked.connect(self.back_requested.emit)
         title = QLabel("Belanja dan Supplier")
-        title.setStyleSheet("font-size: 25px; font-weight: 700; color: #172554;")
+        title.setStyleSheet("font-size: 25px; font-weight: 700; color: #ffffff;")
         header.addWidget(self.back_button)
         header.addWidget(title)
         header.addStretch(1)
@@ -56,7 +56,7 @@ class PurchaseView(QWidget):
             "sampai jatuh tempo; pembelian Lunas langsung tercatat lunas."
         )
         description.setWordWrap(True)
-        description.setStyleSheet("color: #64748b;")
+        description.setStyleSheet("color: #a1a1aa;")
         root.addWidget(description)
 
         form = QFormLayout()
@@ -136,7 +136,7 @@ class PurchaseView(QWidget):
         root.addWidget(self.purchase_table, 1)
         self.debt_summary = QLabel()
         self.debt_summary.setStyleSheet(
-            "font-weight: 700; color: #9a3412; font-size: 14px;"
+            "font-weight: 700; color: #fdba74; font-size: 14px;"
         )
         root.addWidget(self.debt_summary)
         root.addWidget(

@@ -13,6 +13,7 @@ from app.services.owner_setup_service import OwnerSetupService
 from app.services.store_settings_service import StoreSettingsService
 from app.services.user_management_service import UserManagementService
 from app.ui.main_window import MainWindow
+from app.ui.theme import STYLE_SHEET
 from app.ui.views.license_view import LicenseView
 from app.ui.views.login_view import LoginView
 
@@ -25,6 +26,7 @@ class Application:
         logger.info("Starting POS application")
         self.qt = QApplication([])
         self.qt.setQuitOnLastWindowClosed(True)
+        self.qt.setStyleSheet(STYLE_SHEET)
         try:
             upgrade_database()
         except Exception as exc:
@@ -115,6 +117,4 @@ class Application:
 
 
 if __name__ == "__main__":
-    import logging
-
     raise SystemExit(Application().run())

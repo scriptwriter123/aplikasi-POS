@@ -27,6 +27,19 @@ class ReceiptPrinter:
         if dialog.exec() != QPrintDialog.DialogCode.Accepted:
             return False
 
+        return self._render_to_printer(printer, receipt_data)
+
+    def print_receipt_direct(self, receipt_data: dict) -> bool:
+        from PySide6.QtPrintSupport import QPrinterInfo
+
+        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        default_name = QPrinterInfo.defaultPrinterName()
+        if not default_name:
+            raise OSError("Tidak ada printer default yang terpasang.")
+        printer.setPrinterName(default_name)
+        return self._render_to_printer(printer, receipt_data)
+
+    def _render_to_printer(self, printer: QPrinter, receipt_data: dict) -> bool:
         page_rect = printer.pageRect(QPrinter.Unit.Point)
         document = self._create_document(receipt_data)
         document.setPageSize(QSizeF(page_rect.width(), page_rect.height()))

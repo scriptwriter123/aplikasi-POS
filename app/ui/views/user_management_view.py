@@ -40,7 +40,7 @@ class UserManagementView(QWidget):
         back_button = create_dashboard_back_button(self)
         back_button.clicked.connect(self.back_requested.emit)
         title = QLabel("Manajemen Pengguna")
-        title.setStyleSheet("font-size: 25px; font-weight: 700; color: #172554;")
+        title.setStyleSheet("font-size: 25px; font-weight: 700; color: #ffffff;")
         header.addWidget(back_button)
         header.addWidget(title)
         header.addStretch(1)
@@ -51,7 +51,7 @@ class UserManagementView(QWidget):
             "menambahkan akun pengguna."
         )
         description.setWordWrap(True)
-        description.setStyleSheet("color: #64748b;")
+        description.setStyleSheet("color: #a1a1aa;")
         root.addWidget(description)
 
         form_layout = QFormLayout()
@@ -83,9 +83,9 @@ class UserManagementView(QWidget):
 
         self.create_button = QPushButton("Tambah Pengguna")
         self.create_button.setStyleSheet(
-            "QPushButton { background: #1d4ed8; color: white; border: none; "
+            "QPushButton { background: #007acc; color: white; border: none; "
             "border-radius: 8px; padding: 10px 16px; font-weight: 600; }"
-            "QPushButton:hover { background: #1e40af; }"
+            "QPushButton:hover { background: #0098ff; }"
         )
         self.create_button.clicked.connect(self._create_user)
         root.addWidget(self.create_button, alignment=Qt.AlignmentFlag.AlignLeft)

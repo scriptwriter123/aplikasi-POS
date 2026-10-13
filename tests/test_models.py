@@ -43,6 +43,8 @@ NEW_TABLES = {
     "journal_entries",
     "journal_lines",
     "financial_payments",
+    "payment_settings",
+    "payment_wizard_states",
 }
 
 
@@ -64,7 +66,7 @@ def model_session():
 
 def test_roadmap_tables_are_registered_in_metadata():
     assert NEW_TABLES <= set(Base.metadata.tables)
-    assert len(Base.metadata.tables) == 33
+    assert len(Base.metadata.tables) == 35
     assert role_permissions.name == "role_permissions"
 
 

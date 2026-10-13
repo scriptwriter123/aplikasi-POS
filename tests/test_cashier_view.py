@@ -178,7 +178,7 @@ def test_enter_on_search_result_opens_quantity_prompt_and_adds_product(
     assert prompts and prompts[0][0].startswith(product.name)
     assert view.cart[product.id]["qty"] == 3
     assert view.cart_table.item(0, 1).text() == product.name
-    assert view.cart_table.cellWidget(0, 3).value() == 3
+    assert view.cart_table.item(0, 3).text() == "3"
     assert view.product_table.currentRow() == 0
     assert qt_app.focusWidget() is view.product_table
     view.close()
@@ -407,7 +407,7 @@ def test_cashier_refocuses_scanner_after_checkout(
         lambda _self: QDialog.DialogCode.Accepted,
     )
     monkeypatch.setattr(PaymentDialog, "payment", lambda _self: ("CASH", 2_500))
-    monkeypatch.setattr(view, "_offer_receipt_output", lambda _receipt: None)
+    monkeypatch.setattr(view, "_print_receipt_direct", lambda _receipt: None)
     monkeypatch.setattr(QMessageBox, "information", lambda *_args: None)
     view.pay_button.setFocus()
 
@@ -431,9 +431,10 @@ def test_cashier_logout_button_emits_logout_request(cashier_session, qt_app):
     view.close()
 
 
-def test_cart_quantity_is_editable_and_enter_moves_to_next_product(
+def test_cart_quantity_is_editable_via_buttons_and_double_click(
     cashier_session,
     qt_app,
+    monkeypatch,
 ):
     session, user, product = cashier_session
     second_product = Product(
@@ -452,33 +453,65 @@ def test_cart_quantity_is_editable_and_enter_moves_to_next_product(
     }
     view._update_cart_view()
 
-    qty_input = view.cart_table.cellWidget(0, 3)
-    assert qty_input is not None
-    qty_input.setFocus()
-    QTest.keyClick(qty_input, Qt.Key.Key_Up)
+    assert view.cart_table.item(0, 3).text() == "1"
+    assert view.cart_table.item(1, 3).text() == "1"
+
+    view.cart_table.setCurrentCell(0, 1)
+    view._change_selected_qty(1)
     qt_app.processEvents()
 
     assert view.cart[product.id]["qty"] == 2
+    assert view.cart_table.item(0, 3).text() == "2"
     assert view.cart_table.item(0, 4).text() == rupiah(5_000)
     assert view.total_label.text() == rupiah(6_000)
 
-    QTest.keyClick(qty_input, Qt.Key.Key_Tab)
-    qt_app.processEvents()
-    assert view.cart_table.currentRow() == 1
-    assert view.cart_table.currentColumn() == 1
+    def choose_quantity(parent, title, label, value, minimum, maximum):
+        return 4, True
 
-    qty_input.setFocus()
-    QTest.keyClick(qty_input, Qt.Key.Key_Return)
+    monkeypatch.setattr(QInputDialog, "getInt", choose_quantity)
+    view._edit_cart_qty(0)
     qt_app.processEvents()
 
-    assert view.cart_table.currentRow() == 1
-    assert view.cart_table.currentColumn() == 1
+    assert view.cart[product.id]["qty"] == 4
+    assert view.cart_table.item(0, 3).text() == "4"
+    view.close()
+
+
+def test_pressing_enter_on_qty_column_opens_edit_dialog(
+    cashier_session,
+    qt_app,
+    monkeypatch,
+):
+    session, user, product = cashier_session
+    view = CashierView(user, session)
+    view.cart = {product.id: {"product": product, "qty": 1}}
+    view._update_cart_view()
+
+    view.cart_table.setCurrentCell(0, 3)
+
+    prompts = []
+
+    def choose_quantity(parent, title, label, value, minimum, maximum):
+        prompts.append((label, value, minimum, maximum))
+        return 7, True
+
+    monkeypatch.setattr(QInputDialog, "getInt", choose_quantity)
+    QTest.keyClick(view.cart_table, Qt.Key.Key_Return)
+    qt_app.processEvents()
+
+    assert prompts and prompts[0][1] == 1
+    assert view.cart[product.id]["qty"] == 7
+    assert view.cart_table.item(0, 3).text() == "7"
     view.close()
 
 
 @pytest.mark.parametrize(
     ("method_index", "method_name", "expect_demo"),
-    [(1, "QRIS", False), (2, "TRANSFER BANK", True), (3, "E-WALLET", True)],
+    [
+        (1, "QRIS DANA", True),
+        (2, "QRIS MIDTRANS", False),
+        (3, "TF (m BANKING)", True),
+    ],
 )
 def test_non_cash_payment_shows_demo_qr_and_cannot_be_confirmed(
     method_index: int,
@@ -511,3 +544,104 @@ def test_non_cash_payment_shows_demo_qr_and_cannot_be_confirmed(
     assert not dialog.qr_panel.isVisible()
     assert dialog.confirm_button.isEnabled()
     dialog.close()
+
+
+def test_cash_checkout_prints_thermal_directly(
+    cashier_session,
+    qt_app,
+    monkeypatch,
+):
+    session, user, product = cashier_session
+    view = CashierView(user, session)
+    view.show()
+    qt_app.processEvents()
+    view.current_shift = view.shift_service.open_shift(user, 100_000)
+    view.cart[product.id] = {"product": product, "qty": 1}
+    view._update_cart_view()
+
+    monkeypatch.setattr(
+        PaymentDialog,
+        "exec",
+        lambda _self: QDialog.DialogCode.Accepted,
+    )
+    monkeypatch.setattr(PaymentDialog, "payment", lambda _self: ("CASH", 2_500))
+
+    printed = []
+    monkeypatch.setattr(
+        view,
+        "_print_receipt_direct",
+        lambda _receipt: printed.append(_receipt),
+    )
+    offered = []
+    monkeypatch.setattr(
+        view,
+        "_offer_receipt_output",
+        lambda _receipt: offered.append(_receipt),
+    )
+    monkeypatch.setattr(QMessageBox, "information", lambda *_args: None)
+
+    view._checkout()
+    qt_app.processEvents()
+
+    assert len(printed) == 1
+    assert printed[0]["payment_method"] == "Tunai"
+    assert printed[0]["paid"] == 2_500
+    assert printed[0]["change"] == 0
+    assert offered == []
+    view.close()
+
+
+def test_cash_enter_on_amount_triggers_confirm(qt_app, monkeypatch):
+    dialog = PaymentDialog(10_000)
+    dialog.show()
+    qt_app.processEvents()
+
+    accepted = []
+    monkeypatch.setattr(
+        PaymentDialog,
+        "accept",
+        lambda _self: accepted.append(True),
+    )
+    dialog.amount_input.setText("15000")
+    QTest.keyClick(dialog.amount_input, Qt.Key.Key_Return)
+    qt_app.processEvents()
+
+    assert accepted == [True]
+    dialog.close()
+
+
+def test_payment_methods_require_setting_and_active_wizard(
+    cashier_session, qt_app
+):
+    from app.models import PaymentSettings, PaymentWizardState
+
+    session, user, _product = cashier_session
+    view = CashierView(user, session)
+
+    assert view._enabled_payment_methods() == list(PaymentDialog.ALL_METHODS)
+
+    session.add(
+        PaymentSettings(
+            cash_enabled=True,
+            qris_dana_enabled=True,
+            qris_midtrans_enabled=False,
+            transfer_enabled=True,
+        )
+    )
+    session.flush()
+    assert view._enabled_payment_methods() == ["CASH"]
+
+    session.add(
+        PaymentWizardState(method="QRIS_DANA", status="active", payload="")
+    )
+    session.add(
+        PaymentWizardState(method="BANK", status="in_progress", payload="")
+    )
+    session.flush()
+    assert view._enabled_payment_methods() == ["CASH", "QRIS_DANA"]
+
+    session.query(PaymentWizardState).filter_by(method="QRIS_DANA").one().status = (
+        "ready_to_test"
+    )
+    session.flush()
+    assert view._enabled_payment_methods() == ["CASH"]

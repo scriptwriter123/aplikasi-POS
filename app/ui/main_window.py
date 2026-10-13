@@ -4,6 +4,7 @@ from PySide6.QtWidgets import QMainWindow, QStackedWidget
 
 from app.models import Store
 from app.services.store_settings_service import StoreSettingsService
+from app.services.payment_settings_service import PaymentSettingsService
 from app.services.user_management_service import UserManagementService
 from app.ui.views.cashier_view import CashierView
 from app.ui.views.dashboard_view import DashboardView
@@ -31,6 +32,7 @@ class MainWindow(QMainWindow):
         self.user = user
         self.user_management = user_management
         self.store_settings = StoreSettingsService(self.user_management.session)
+        self.payment_settings = PaymentSettingsService(self.user_management.session)
         self.store: Store | None = self.store_settings.get_store()
         self.stack = QStackedWidget()
         self.setCentralWidget(self.stack)
@@ -85,6 +87,7 @@ class MainWindow(QMainWindow):
             self.store_settings_view = StoreSettingsView(
                 user,
                 self.store_settings,
+                payment_service=self.payment_settings,
             )
             self.store_settings_view.back_requested.connect(self.show_dashboard)
             self.store_settings_view.settings_saved.connect(

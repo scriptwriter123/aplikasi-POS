@@ -67,7 +67,7 @@ class ReportView(QWidget):
         self.back_button.clicked.connect(self.back_requested.emit)
         self.heading_label = QLabel(self.title_text)
         self.heading_label.setStyleSheet(
-            "font-size: 25px; font-weight: 700; color: #172554;"
+            "font-size: 25px; font-weight: 700; color: #ffffff;"
         )
         header.addWidget(self.back_button)
         header.addWidget(self.heading_label)
@@ -115,18 +115,18 @@ class ReportView(QWidget):
         self.summary_label = QLabel()
         self.summary_label.setWordWrap(True)
         self.summary_label.setStyleSheet(
-            "font-size: 15px; font-weight: 600; color: #0f172a;"
+            "font-size: 15px; font-weight: 600; color: #ffffff;"
         )
         root.addWidget(self.summary_label)
         self.warning_label = QLabel()
         self.warning_label.setWordWrap(True)
-        self.warning_label.setStyleSheet("color: #9a3412;")
+        self.warning_label.setStyleSheet("color: #fdba74;")
         root.addWidget(self.warning_label)
 
         self.low_stock_label = QLabel()
         self.low_stock_label.setWordWrap(True)
         self.low_stock_label.setStyleSheet(
-            "color: #9a3412; background: #fff7ed; padding: 8px; "
+            "color: #fdba74; background: #3a2410; padding: 8px; "
             "border-radius: 6px;"
         )
         root.addWidget(self.low_stock_label)
@@ -134,11 +134,11 @@ class ReportView(QWidget):
 
         self.cashier_reports_heading = QLabel("Laporan Kasir Harian")
         self.cashier_reports_heading.setStyleSheet(
-            "font-size: 17px; font-weight: 700; color: #172554;"
+            "font-size: 17px; font-weight: 700; color: #ffffff;"
         )
         root.addWidget(self.cashier_reports_heading)
         self.cashier_reports_summary = QLabel()
-        self.cashier_reports_summary.setStyleSheet("color: #64748b;")
+        self.cashier_reports_summary.setStyleSheet("color: #a1a1aa;")
         root.addWidget(self.cashier_reports_summary)
         self.cashier_reports_table = QTableWidget(0, 6)
         self.cashier_reports_table.setHorizontalHeaderLabels(
@@ -597,7 +597,7 @@ class CashierDailyReportDetailsDialog(QDialog):
         heading = QLabel(
             f"{report.cashier.full_name} — {period_label}"
         )
-        heading.setStyleSheet("font-size: 20px; font-weight: 700; color: #172554;")
+        heading.setStyleSheet("font-size: 20px; font-weight: 700; color: #ffffff;")
         layout.addWidget(heading)
         summary = QLabel(
             f"Jumlah transaksi: {len(sales)}    |    "
@@ -607,7 +607,7 @@ class CashierDailyReportDetailsDialog(QDialog):
         self.notes_label = QLabel(f"Catatan kasir: {report.notes or '-'}")
         self.notes_label.setWordWrap(True)
         self.notes_label.setStyleSheet(
-            "background: #f8fafc; padding: 8px; border-radius: 6px;"
+            "background: #1a1a1e; padding: 8px; border-radius: 6px;"
         )
         layout.addWidget(self.notes_label)
 

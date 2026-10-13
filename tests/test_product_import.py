@@ -272,7 +272,9 @@ def test_import_menu_has_four_workflows(import_session, qt_app):
     session, owner, *_ = import_session
     view = MasterDataView(owner, session)
     assert view.import_button.text() == "Import Data   ▾"
-    assert "QToolButton { background: #1d4ed8" in view.import_button.styleSheet()
+    from app.ui.theme import PALETTE
+
+    assert f"QToolButton {{ background: {PALETTE['accent']}" in view.import_button.styleSheet()
     assert "color: white" in view.import_button.styleSheet()
     back_button = view.findChild(QPushButton, "dashboardBackButton")
     assert back_button is not None

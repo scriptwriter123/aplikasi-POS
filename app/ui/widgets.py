@@ -5,15 +5,15 @@ from PySide6.QtWidgets import QLabel, QPushButton
 
 COPYRIGHT_CAPTION = "ANJAY Solution Software Dev. 2026"
 PRIMARY_BUTTON_STYLE = (
-    "QPushButton { background: #1d4ed8; color: white; border: none; "
+    "QPushButton { background: #007acc; color: white; border: none; "
     "border-radius: 8px; padding: 9px 14px; font-weight: 600; }"
-    "QPushButton:hover { background: #1e40af; }"
+    "QPushButton:hover { background: #0098ff; }"
 )
 DASHBOARD_BACK_BUTTON_STYLE = (
-    "QPushButton { background: #1d4ed8; color: white; border: none; "
+    "QPushButton { background: #007acc; color: white; border: none; "
     "border-radius: 8px; padding: 9px 14px; font-weight: 600; }"
-    "QPushButton:hover { background: #1e40af; }"
-    "QPushButton:pressed { background: #1e3a8a; }"
+    "QPushButton:hover { background: #0098ff; }"
+    "QPushButton:pressed { background: #005995; }"
 )
 
 
@@ -48,6 +48,6 @@ def create_copyright_label(parent=None) -> QLabel:
     label.setObjectName("copyrightCredit")
     label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
     label.setStyleSheet(
-        "color: #1d4ed8; font-size: 10px; font-weight: 600; padding: 3px 8px;"
+        "color: #89b4fa; font-size: 10px; font-weight: 600; padding: 3px 8px;"
     )
     return label

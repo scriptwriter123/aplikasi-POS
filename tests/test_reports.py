@@ -345,7 +345,9 @@ def test_cashier_daily_report_saves_totals_and_updates_existing_report(
     details_button = view.cashier_reports_table.cellWidget(0, 5)
     assert details_button is not None
     assert details_button.text() == "Rincian Transaksi"
-    assert "#1d4ed8" in details_button.styleSheet()
+    from app.ui.theme import PALETTE
+
+    assert PALETTE["accent"] in details_button.styleSheet()
 
     cashier_sales = ReportService(report_session).sales(
         start,

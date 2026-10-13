@@ -199,9 +199,11 @@ def test_store_name_and_logo_update_main_and_login_window_branding(
     assert window.dashboard.store_name_label.alignment() == Qt.AlignmentFlag.AlignCenter
     assert window.dashboard.store_slogan_label.alignment() == Qt.AlignmentFlag.AlignCenter
     assert window.dashboard.store_address_label.alignment() == Qt.AlignmentFlag.AlignCenter
-    assert "#1d4ed8" in window.dashboard.store_name_label.styleSheet()
-    assert "#2563eb" in window.dashboard.store_slogan_label.styleSheet()
-    assert "#3b82f6" in window.dashboard.store_address_label.styleSheet()
+    from app.ui.theme import PALETTE
+
+    assert PALETTE["accent_soft"] in window.dashboard.store_name_label.styleSheet()
+    assert PALETTE["accent_soft"] in window.dashboard.store_slogan_label.styleSheet()
+    assert PALETTE["accent_soft"] in window.dashboard.store_address_label.styleSheet()
     assert not window.windowIcon().isNull()
     assert login.windowTitle() == "Toko Baru — Login"
     assert not login.windowIcon().isNull()
@@ -238,3 +240,52 @@ def test_login_enter_moves_to_password_and_submits(qt_app):
 
     assert results == [("cashier", "secret")]
     login.close()
+
+
+def test_payment_settings_section_shows_wizard_status_and_opens_wizard(
+    settings_session, qt_app, monkeypatch
+):
+    from app.models import PaymentWizardState
+    from app.services.payment_settings_service import PaymentSettingsService
+    from app.ui.views import payment_wizard_view
+    from PySide6.QtWidgets import QMessageBox
+
+    session, owner, _cashier = settings_session
+    view = StoreSettingsView(
+        owner,
+        StoreSettingsService(session),
+        payment_service=PaymentSettingsService(session),
+    )
+
+    assert view.payment_cash.text() == "Tunai (Offline)"
+    assert len(view._payment_setting_buttons) == 4
+    assert (
+        view._payment_status_labels["QRIS_DANA"].text() == "Status: Belum dimulai"
+    )
+
+    session.add(PaymentWizardState(method="QRIS_DANA", status="active", payload=""))
+    session.flush()
+    view._refresh_payment_status_labels()
+    assert "Aktif" in view._payment_status_labels["QRIS_DANA"].text()
+    assert "Belum dimulai" in view._payment_status_labels["BANK"].text()
+
+    opened: list[str] = []
+
+    class FakeDialog:
+        def __init__(self, method, actor, service, parent):
+            opened.append(method)
+
+        def exec(self):
+            return None
+
+    monkeypatch.setattr(payment_wizard_view, "PaymentWizardDialog", FakeDialog)
+    monkeypatch.setattr(
+        QMessageBox, "information", staticmethod(lambda *args, **kwargs: None)
+    )
+
+    view._begin_edit()
+    for button in view._payment_setting_buttons:
+        button.click()
+
+    assert opened == ["QRIS_DANA", "QRIS_MIDTRANS", "BANK"]
+    view.close()

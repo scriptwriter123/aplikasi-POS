@@ -84,6 +84,23 @@ class Store(Base, TimestampMixin, SoftDeleteMixin):
     logo_path: Mapped[str | None] = mapped_column(String(500))
 
 
+class PaymentSettings(Base, TimestampMixin):
+    __tablename__ = "payment_settings"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    cash_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    qris_dana_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    qris_midtrans_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    transfer_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+
+class PaymentWizardState(Base, TimestampMixin):
+    __tablename__ = "payment_wizard_states"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    method: Mapped[str] = mapped_column(String(30), unique=True, nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="not_started")
+    payload: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+
 class Category(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "categories"
     id: Mapped[int] = mapped_column(primary_key=True)

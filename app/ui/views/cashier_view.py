@@ -10,7 +10,6 @@ from PySide6.QtCore import QEvent, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import (
     QColor,
     QImage,
-    QKeyEvent,
     QKeySequence,
     QPainter,
     QPixmap,
@@ -32,7 +31,6 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
-    QSpinBox,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
@@ -53,43 +51,6 @@ from app.services.shift_service import ShiftService
 from app.services.payment_service import PaymentService, PaymentServiceError
 from app.utils.formatters import rupiah
 from app.ui.widgets import create_copyright_label
-
-
-class CartQuantitySpinBox(QSpinBox):
-    navigate_requested = Signal(int, int)
-    quantity_changed = Signal(int, int)
-
-    def __init__(self, row: int, parent=None):
-        super().__init__(parent)
-        self.row = row
-        self.valueChanged.connect(self._emit_quantity_changed)
-
-    def _emit_quantity_changed(self, value: int):
-        self.quantity_changed.emit(self.row, value)
-
-    def keyPressEvent(self, event: QKeyEvent):
-        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            self.interpretText()
-            self.navigate_requested.emit(self.row, 1)
-            event.accept()
-            return
-        super().keyPressEvent(event)
-
-    def event(self, event: QEvent):
-        if event.type() == QEvent.Type.KeyPress and event.key() in (
-            Qt.Key.Key_Tab,
-            Qt.Key.Key_Backtab,
-        ):
-            direction = (
-                -1
-                if event.key() == Qt.Key.Key_Backtab
-                or event.modifiers() & Qt.KeyboardModifier.ShiftModifier
-                else 1
-            )
-            self.navigate_requested.emit(self.row, direction)
-            event.accept()
-            return True
-        return super().event(event)
 
 
 class CashierView(QWidget):
@@ -113,14 +74,14 @@ class CashierView(QWidget):
         root.setSpacing(12)
 
         header = QHBoxLayout()
-        title = QLabel("Penjualan Harian")
-        title.setStyleSheet("font-size: 25px; font-weight: 700; color: #172554;")
+        title = QLabel("KASIR")
+        title.setStyleSheet("font-size: 25px; font-weight: 700; color: #ffffff;")
         self.date_label = QLabel(date.today().strftime("%d %B %Y"))
-        self.date_label.setStyleSheet("font-size: 14px; color: #64748b;")
+        self.date_label.setStyleSheet("font-size: 14px; color: #a1a1aa;")
         self.shift_label = QLabel()
         self.shift_label.setStyleSheet(
-            "font-weight: 600; color: #475569; padding: 7px 10px; "
-            "background: #f1f5f9; border-radius: 8px;"
+            "font-weight: 600; color: #e4e4e7; padding: 7px 10px; "
+            "background: #222226; border-radius: 8px;"
         )
         self.open_shift_button = QPushButton("Buka Shift")
         self.open_shift_button.clicked.connect(self._open_shift)
@@ -130,7 +91,7 @@ class CashierView(QWidget):
         self.logout_button.setStyleSheet(
             "QPushButton { background: #dc2626; color: white; border: none; "
             "border-radius: 8px; padding: 8px 14px; font-weight: 600; }"
-            "QPushButton:hover { background: #b91c1c; }"
+            "QPushButton:hover { background: #ef4444; }"
         )
         self.logout_button.clicked.connect(self.logout_requested.emit)
         header.addWidget(title)
@@ -186,7 +147,7 @@ class CashierView(QWidget):
         cart_layout.setContentsMargins(0, 0, 0, 0)
         cart_heading = QLabel("Keranjang")
         cart_heading.setStyleSheet(
-            "font-size: 17px; font-weight: 700; color: #0f172a;"
+            "font-size: 17px; font-weight: 700; color: #ffffff;"
         )
         cart_layout.addWidget(cart_heading)
         self.cart_table = QTableWidget(0, 5)
@@ -196,6 +157,16 @@ class CashierView(QWidget):
         self.cart_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.cart_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.cart_table.horizontalHeader().setStretchLastSection(True)
+        self.cart_table.setColumnWidth(0, 110)
+        self.cart_table.setColumnWidth(1, 220)
+        self.cart_table.setColumnWidth(2, 120)
+        self.cart_table.setColumnWidth(3, 90)
+        self.cart_table.itemDoubleClicked.connect(
+            lambda item: self._edit_cart_qty(item.row())
+            if item.column() == 3
+            else None
+        )
+        self.cart_table.installEventFilter(self)
         cart_layout.addWidget(self.cart_table, 1)
         cart_actions = QHBoxLayout()
         add_button = QPushButton("Tambah Dipilih")
@@ -223,7 +194,7 @@ class CashierView(QWidget):
 
         daily_panel = QFrame()
         daily_panel.setStyleSheet(
-            "QFrame#dailyPanel { background: #f8fafc; border: 1px solid #e2e8f0; "
+            "QFrame#dailyPanel { background: #1a1a1e; border: 1px solid #2d2d34; "
             "border-radius: 10px; }"
             "QLabel { border: none; background: transparent; }"
         )
@@ -234,7 +205,7 @@ class CashierView(QWidget):
         daily_heading = QLabel("Transaksi Hari Ini")
         daily_heading.setStyleSheet("font-weight: 700;")
         self.daily_summary = QLabel()
-        self.daily_summary.setStyleSheet("color: #475569;")
+        self.daily_summary.setStyleSheet("color: #e4e4e7;")
         daily_header.addWidget(daily_heading)
         daily_header.addStretch(1)
         daily_header.addWidget(self.daily_summary)
@@ -251,12 +222,12 @@ class CashierView(QWidget):
 
         footer = QHBoxLayout()
         self.status_label = QLabel("Pilih atau scan produk untuk mulai.")
-        self.status_label.setStyleSheet("color: #64748b;")
+        self.status_label.setStyleSheet("color: #a1a1aa;")
         footer.addWidget(self.status_label, 1)
         footer.addWidget(QLabel("TOTAL"))
         self.total_label = QLabel(rupiah(0))
         self.total_label.setStyleSheet(
-            "font-size: 25px; font-weight: 700; color: #0f172a; margin-right: 12px;"
+            "font-size: 25px; font-weight: 700; color: #ffffff; margin-right: 12px;"
         )
         footer.addWidget(self.total_label)
         self.hold_button = QPushButton("Simpan Pesanan (F5)")
@@ -267,9 +238,9 @@ class CashierView(QWidget):
         footer.addWidget(self.resume_button)
         self.pay_button = QPushButton("Bayar (F4)")
         self.pay_button.setStyleSheet(
-            "QPushButton { background: #15803d; color: white; border: none; "
+            "QPushButton { background: #16a34a; color: white; border: none; "
             "border-radius: 8px; padding: 12px 20px; font-weight: 700; }"
-            "QPushButton:hover { background: #166534; }"
+            "QPushButton:hover { background: #15803d; }"
         )
         self.pay_button.clicked.connect(self._checkout)
         footer.addWidget(self.pay_button)
@@ -284,6 +255,16 @@ class CashierView(QWidget):
     def showEvent(self, event):
         super().showEvent(event)
         QTimer.singleShot(0, self.search_input.setFocus)
+
+    def eventFilter(self, obj, event):
+        if obj is self.cart_table and event.type() == QEvent.Type.KeyPress:
+            if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                row = self.cart_table.currentRow()
+                column = self.cart_table.currentColumn()
+                if column == 3 and 0 <= row < self.cart_table.rowCount():
+                    self._edit_cart_qty(row)
+                    return True
+        return super().eventFilter(obj, event)
 
     def _connect_shortcuts(self):
         QShortcut(QKeySequence("F2"), self, activated=self._f2_action)
@@ -415,20 +396,33 @@ class CashierView(QWidget):
             self.status_label.setText("Pilih item keranjang terlebih dahulu.")
             return
         product_id = int(self.cart_table.item(row, 0).data(Qt.ItemDataRole.UserRole))
-        spin_box = self.cart_table.cellWidget(row, 3)
-        if isinstance(spin_box, QSpinBox):
-            spin_box.setValue(spin_box.value() + change)
+        entry = self.cart.get(product_id)
+        if entry is None:
+            return
+        new_qty = entry["qty"] + change
+        if new_qty < 1 or new_qty > max(1, entry["product"].stock_qty):
+            return
+        entry["qty"] = new_qty
+        self._update_cart_view()
 
-    def _navigate_cart_qty(self, current_row: int, direction: int):
-        target_row = current_row + direction
-        if 0 <= target_row < self.cart_table.rowCount():
-            self.cart_table.setCurrentCell(target_row, 1)
-            self.cart_table.setFocus()
-        elif target_row >= self.cart_table.rowCount():
-            self.search_input.setFocus()
-        else:
-            self.cart_table.setCurrentCell(0, 1)
-            self.cart_table.setFocus()
+    def _edit_cart_qty(self, row: int):
+        if not (0 <= row < self.cart_table.rowCount()):
+            return
+        product_id = int(self.cart_table.item(row, 0).data(Qt.ItemDataRole.UserRole))
+        entry = self.cart.get(product_id)
+        if entry is None:
+            return
+        quantity, accepted = QInputDialog.getInt(
+            self,
+            "Ubah Jumlah",
+            f"Jumlah {entry['product'].name}:",
+            entry["qty"],
+            1,
+            max(1, entry["product"].stock_qty),
+        )
+        if accepted:
+            entry["qty"] = quantity
+            self._update_cart_view()
 
     def _update_cart_view(self):
         self.cart_table.setRowCount(len(self.cart))
@@ -441,11 +435,16 @@ class CashierView(QWidget):
             total += line_total
             sku_item = QTableWidgetItem(product.sku)
             sku_item.setData(Qt.ItemDataRole.UserRole, product_id)
+            qty_item = QTableWidgetItem(str(quantity))
+            qty_item.setTextAlignment(
+                Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter
+            )
+            qty_item.setData(Qt.ItemDataRole.UserRole, product_id)
             values = (
                 sku_item,
                 QTableWidgetItem(product.name),
                 QTableWidgetItem(rupiah(unit_price)),
-                QTableWidgetItem(""),
+                qty_item,
                 QTableWidgetItem(rupiah(line_total)),
             )
             for column, item in enumerate(values):
@@ -455,16 +454,12 @@ class CashierView(QWidget):
                         f"Harga normal: {rupiah(product.selling_price)}; "
                         "harga spesial partai diterapkan."
                     )
-                if column != 3:
-                    self.cart_table.setItem(row, column, item)
-            qty_input = CartQuantitySpinBox(row, self.cart_table)
-            qty_input.setRange(1, max(1, product.stock_qty))
-            qty_input.setValue(quantity)
-            qty_input.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            qty_input.quantity_changed.connect(self._set_cart_quantity)
-            qty_input.navigate_requested.connect(self._navigate_cart_qty)
-            self.cart_table.setCellWidget(row, 3, qty_input)
+                self.cart_table.setItem(row, column, item)
         self.cart_table.resizeColumnsToContents()
+        qty_column = 3
+        min_qty_width = 70
+        if self.cart_table.columnWidth(qty_column) < min_qty_width:
+            self.cart_table.setColumnWidth(qty_column, min_qty_width)
         self.total_label.setText(rupiah(total))
         self.pay_button.setEnabled(bool(self.cart) and self.current_shift is not None)
 
@@ -618,12 +613,16 @@ class CashierView(QWidget):
             * entry["qty"]
             for entry in self.cart.values()
         )
-        payment_dialog = PaymentDialog(total, self)
+        payment_dialog = PaymentDialog(
+            total,
+            self,
+            enabled_methods=self._enabled_payment_methods(),
+        )
         if payment_dialog.exec() != QDialog.DialogCode.Accepted:
             return
         method, amount = payment_dialog.payment()
 
-        if method == "QRIS":
+        if method == "QRIS_MIDTRANS":
             self._checkout_qris(total)
             return
 
@@ -656,7 +655,10 @@ class CashierView(QWidget):
         self._refresh_daily_sales()
         self.status_label.setText(f"Transaksi {sale.invoice_no} berhasil.")
         if receipt_data is not None:
-            self._offer_receipt_output(receipt_data)
+            if method == "CASH":
+                self._print_receipt_direct(receipt_data)
+            else:
+                self._offer_receipt_output(receipt_data)
         QMessageBox.information(
             self,
             "Transaksi berhasil",
@@ -665,6 +667,46 @@ class CashierView(QWidget):
             f"Kembalian: {rupiah(change)}",
         )
         self.search_input.setFocus()
+
+    def _print_receipt_direct(self, receipt_data: dict):
+        try:
+            self.receipt_printer.print_receipt_direct(receipt_data)
+            self.status_label.setText("Struk dicetak ke printer thermal.")
+        except (OSError, RuntimeError) as exc:
+            self._show_error("Gagal mencetak struk", str(exc))
+
+    def _enabled_payment_methods(self) -> list[str]:
+        from app.models import PaymentSettings, PaymentWizardState
+
+        try:
+            settings = (
+                self.session.query(PaymentSettings)
+                .order_by(PaymentSettings.id)
+                .first()
+            )
+            wizard_status = {
+                row.method: row.status
+                for row in self.session.query(PaymentWizardState).all()
+            }
+        except SQLAlchemyError:
+            settings = None
+            wizard_status = {}
+        if settings is None:
+            return list(PaymentDialog.ALL_METHODS)
+
+        def ready(method: str) -> bool:
+            return wizard_status.get(method) == "active"
+
+        enabled: list[str] = []
+        if settings.cash_enabled:
+            enabled.append("CASH")
+        if settings.qris_dana_enabled and ready("QRIS_DANA"):
+            enabled.append("QRIS_DANA")
+        if settings.qris_midtrans_enabled and ready("QRIS_MIDTRANS"):
+            enabled.append("QRIS_MIDTRANS")
+        if settings.transfer_enabled and ready("BANK"):
+            enabled.append("BANK")
+        return enabled or ["CASH"]
 
     def _checkout_qris(self, total: int):
         import uuid
@@ -716,7 +758,7 @@ class CashierView(QWidget):
             for entry in self.cart.values()
         )
         try:
-            sale = self._save_sale(total, "QRIS", total)
+            sale = self._save_sale(total, "QRIS_MIDTRANS", total)
         except POSException as exc:
             self._show_error("Transaksi tidak dapat diselesaikan", str(exc))
             self._refresh_shift_status()
@@ -728,7 +770,7 @@ class CashierView(QWidget):
         try:
             receipt_data = self._build_receipt_data(
                 sale,
-                "QRIS",
+                "QRIS_MIDTRANS",
                 total,
                 0,
             )
@@ -766,7 +808,9 @@ class CashierView(QWidget):
         payment_names = {
             "CASH": "Tunai",
             "QRIS": "QRIS",
-            "BANK": "Transfer Bank",
+            "QRIS_MIDTRANS": "QRIS",
+            "QRIS_DANA": "QRIS DANA",
+            "BANK": "TF (m Banking)",
             "EWALLET": "E-Wallet",
         }
         return {
@@ -936,19 +980,34 @@ class CashierDailyReportDialog(QDialog):
 
 
 class PaymentDialog(QDialog):
-    def __init__(self, total: int, parent=None):
+    ALL_METHODS = ("CASH", "QRIS_DANA", "QRIS_MIDTRANS", "BANK")
+
+    def __init__(self, total: int, parent=None, enabled_methods=None):
         super().__init__(parent)
         self.setWindowTitle("Pembayaran")
         self.setModal(True)
         self.total = total
 
+        if enabled_methods is None:
+            methods = list(self.ALL_METHODS)
+        else:
+            methods = [m for m in self.ALL_METHODS if m in set(enabled_methods)]
+            if not methods:
+                methods = ["CASH"]
+        self.enabled_methods = methods
+
+        method_labels = {
+            "CASH": "Tunai",
+            "QRIS_DANA": "QRIS DANA",
+            "QRIS_MIDTRANS": "QRIS Midtrans",
+            "BANK": "TF (m Banking)",
+        }
+
         layout = QVBoxLayout(self)
         form = QFormLayout()
         self.method_input = QComboBox()
-        self.method_input.addItem("Tunai", "CASH")
-        self.method_input.addItem("QRIS", "QRIS")
-        self.method_input.addItem("Transfer Bank", "BANK")
-        self.method_input.addItem("E-Wallet", "EWALLET")
+        for code in methods:
+            self.method_input.addItem(method_labels[code], code)
         self.amount_input = QLineEdit(str(total))
         self.amount_input.setPlaceholderText("Nominal yang diterima")
         form.addRow("Total tagihan", QLabel(rupiah(total)))
@@ -976,7 +1035,7 @@ class PaymentDialog(QDialog):
         )
         self.qr_notice.setWordWrap(True)
         self.qr_notice.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.qr_notice.setStyleSheet("color: #9a3412;")
+        self.qr_notice.setStyleSheet("color: #fdba74;")
         qr_layout.addWidget(self.qr_image, alignment=Qt.AlignmentFlag.AlignCenter)
         qr_layout.addWidget(self.qr_title)
         qr_layout.addWidget(self.qr_notice)
@@ -1006,7 +1065,7 @@ class PaymentDialog(QDialog):
     def _update_method_display(self):
         method = self.method_input.currentData()
         is_cash = method == "CASH"
-        is_qris = method == "QRIS"
+        is_qris = method == "QRIS_MIDTRANS"
         self.qr_panel.setVisible(not is_cash)
         self.amount_input.setEnabled(is_cash or is_qris)
         self.confirm_button.setEnabled(is_cash or is_qris)
@@ -1026,10 +1085,10 @@ class PaymentDialog(QDialog):
 
         self.amount_input.setText(str(self.total))
         method_names = {
-            "BANK": "TRANSFER BANK",
-            "EWALLET": "E-WALLET",
+            "QRIS_DANA": "QRIS DANA",
+            "BANK": "TF (m BANKING)",
         }
-        self.qr_title.setText(f"QR {method_names[method]} · DEMO")
+        self.qr_title.setText(f"QR {method_names.get(method, method)} · DEMO")
         self.qr_image.setPixmap(_make_demo_qr_pixmap(method))
         self.confirm_button.setText("Belum tersedia")
 
@@ -1049,7 +1108,7 @@ class PaymentDialog(QDialog):
                 )
                 return
             self.accept()
-        elif method == "QRIS":
+        elif method == "QRIS_MIDTRANS":
             self.amount_input.setText(str(self.total))
             self.accept()
         else:
@@ -1086,7 +1145,7 @@ class QRISPaymentDialog(QDialog):
         layout.setSpacing(12)
 
         title = QLabel(f"Total: {rupiah(total)}")
-        title.setStyleSheet("font-size: 20px; font-weight: 700; color: #0f172a;")
+        title.setStyleSheet("font-size: 20px; font-weight: 700; color: #ffffff;")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
 
@@ -1098,7 +1157,7 @@ class QRISPaymentDialog(QDialog):
 
         self.status_label = QLabel("Menunggu pembayaran QRIS...")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.status_label.setStyleSheet("font-size: 14px; color: #475569;")
+        self.status_label.setStyleSheet("font-size: 14px; color: #e4e4e7;")
         layout.addWidget(self.status_label)
 
         self.progress_bar = QProgressBar()
@@ -1111,7 +1170,7 @@ class QRISPaymentDialog(QDialog):
         self.cancel_button.setStyleSheet(
             "QPushButton { background: #dc2626; color: white; border: none; "
             "border-radius: 8px; padding: 10px 20px; font-weight: 600; }"
-            "QPushButton:hover { background: #b91c1c; }"
+            "QPushButton:hover { background: #ef4444; }"
         )
         self.cancel_button.clicked.connect(self._cancel_payment)
         layout.addWidget(self.cancel_button, alignment=Qt.AlignmentFlag.AlignCenter)

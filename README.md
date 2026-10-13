@@ -98,6 +98,24 @@ Start Menu untuk membuka `%LOCALAPPDATA%\POSApp\data`. Folder database tidak
 dihapus saat aplikasi di-uninstall. Untuk installer aplikasi dengan konsol log,
 gunakan `python scripts\build_installer.py --debug-console`.
 
+### Tautan unduhan dan QR
+
+Rilis installer dipublikasikan di GitHub Releases. Tautan berikut selalu
+menunjuk ke installer terbaru, berapapun versinya:
+
+```
+https://github.com/scriptwriter123/aplikasi-POS/releases/latest/download/AnjayRetailSoft.exe
+```
+
+QR code untuk tautan itu ada di `docs/qr-download.png`, dengan versi vektor
+`docs/qr-download.svg` untuk keperluan cetak. Buat ulang keduanya dengan:
+
+```powershell
+python scripts\make_download_qr.py
+```
+
+![QR Unduhan Installer POS](docs/qr-download.png)
+
 Pada komputer pelanggan, POS menampilkan ID instalasi. Simpan permintaan
 lisensi `.posreq` dari layar aktivasi dan kirimkan kepada penerbit. Penerbit
 membuka tool terpisah, memilih permintaan, mengisi nama toko, lalu menerbitkan

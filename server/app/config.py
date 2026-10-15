@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     admin_email: str = "admin@pos.local"
     admin_password: str = "admin12345"
     installer_path: Path = BASE_DIR.parent / "build" / "installer_v3" / "AnjayRetailSoft.exe"
+    # Nama bank yang ditampilkan pada panel ATM/transfer simulasi.
+    simulated_va_bank: str = "BANK SIMULASI"
 
     @property
     def midtrans_environment(self) -> str:

@@ -67,11 +67,16 @@ Jika membuat pasangan baru, ganti juga public key di
 
 1. Pelanggan unggah `.posreq` (berisi `installation_id` + `device_id`) → tabel `devices`.
 2. Checkout paket → `orders` (pending) + `licenses` (pending).
-3. Midtrans mengirim notifikasi ke `POST /webhooks/payment/midtrans`;
+3. **ATM/Transfer simulasi (default):** halaman order menampilkan nomor
+   Virtual Account 16 digit (deterministik per order, bank via
+   `SIMULATED_VA_BANK`) dan tombol **Saya Sudah Bayar — Aktifkan Lisensi**.
+   Konfirmasi menandai order `paid`, mencatat `payments`
+   (provider `atm-simulasi`, idempoten), dan menandatangani lisensi.
+4. **Midtrans:** notifikasi ke `POST /webhooks/payment/midtrans`;
    signature SHA-512 diverifikasi, event ganda diabaikan (idempoten).
-4. Saat `settlement` → server menandatangani payload lisensi (Ed25519) dan
-   `licenses.status = active`.
-5. Pelanggan mengunduh `.poslic` → impor ke POS.
+   Saat `settlement` → lisensi ditandatangani dan `licenses.status = active`.
+5. Pelanggan mengunduh `.poslic` → impor ke POS (atau POS polling
+   `GET /api/pos/license` mengambil otomatis).
 
 Perpanjangan (`renew`) menambah durasi mulai dari `expires_at` aktif
 (bukan dari tanggal bayar), sehingga tidak ada hari yang hilang.

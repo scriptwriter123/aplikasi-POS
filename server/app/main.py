@@ -16,7 +16,11 @@ from server.app.security import hash_password
 from server.app.services import auth_service, license_service, payment_service
 from server.app.services.auth_service import AuthError
 from server.app.services.license_service import LicenseServiceError
-from server.app.services.payment_service import PaymentError
+from server.app.services.payment_service import (
+    PaymentError,
+    format_va_display,
+    simulated_va_number,
+)
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
@@ -286,6 +290,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         order = license_service.get_order(session, customer, order_code)
         if order is None:
             raise HTTPException(status_code=404, detail="Order tidak ditemukan.")
+        va_number = simulated_va_number(order.order_code)
         return templates.TemplateResponse(
             request,
             "order.html",
@@ -296,6 +301,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "snap_js_url": app_settings.midtrans_snap_js_url,
                 "flash_status": request.query_params.get("status"),
                 "flash_message": request.query_params.get("message"),
+                "va_number": va_number,
+                "va_number_display": format_va_display(va_number),
+                "simulated_va_bank": app_settings.simulated_va_bank,
             },
         )
 
@@ -316,6 +324,36 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 session, app_settings, order
             )
         except (LicenseServiceError, PaymentError, SigningError) as exc:
+            return RedirectResponse(
+                "/orders/{}?status=error&message={}".format(
+                    order_code, quote(str(exc), safe="")
+                ),
+                status_code=303,
+            )
+        return RedirectResponse(
+            f"/orders/{order_code}?status={quote(str(result['status']), safe='')}",
+            status_code=303,
+        )
+
+    @app.post("/orders/{order_code}/simulasi-bayar")
+    def order_simulate_atm(
+        order_code: str,
+        session: Session = Depends(get_session),
+        customer: Customer = Depends(get_customer),
+    ):
+        """Simulasi ATM: customer transfer manual lalu konfirmasi di sini.
+
+        Menandai order lunas dan menerbitkan lisensi — pengganti webhook
+        gateway untuk pembayaran virtual account sederhana.
+        """
+        order = license_service.get_order(session, customer, order_code)
+        if order is None:
+            raise HTTPException(status_code=404, detail="Order tidak ditemukan.")
+        try:
+            result = payment_service.simulate_atm_payment(
+                session, app_settings, order
+            )
+        except PaymentError as exc:
             return RedirectResponse(
                 "/orders/{}?status=error&message={}".format(
                     order_code, quote(str(exc), safe="")

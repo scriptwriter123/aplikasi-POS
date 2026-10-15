@@ -21,6 +21,79 @@ class PaymentError(ValueError):
 PAID_STATUSES = {"settlement", "capture"}
 FAILED_STATUSES = {"deny", "cancel", "failure", "expire"}
 
+# Simulasi ATM/transfer manual: VA deterministik per order, konfirmasi
+# oleh customer lewat tombol "Saya Sudah Bayar" di halaman order.
+SIMULATED_VA_PREFIX = "9876"
+SIMULATED_ATM_PROVIDER = "atm-simulasi"
+
+
+def simulated_va_number(order_code: str) -> str:
+    """Nomor Virtual Account 16 digit yang stabil untuk satu order."""
+    digest = hashlib.sha256(f"atm-simulasi:{order_code}".encode("utf-8")).hexdigest()
+    tail = str(int(digest[:12], 16))[-12:].zfill(12)
+    return SIMULATED_VA_PREFIX + tail
+
+
+def format_va_display(va_number: str) -> str:
+    return " ".join(
+        va_number[index : index + 4]
+        for index in range(0, len(va_number), 4)
+    )
+
+
+def simulate_atm_payment(
+    session: Session,
+    settings: Settings,
+    order: Order,
+) -> dict[str, Any]:
+    """Tandai order lunas setelah customer mengonfirmasi transfer ATM.
+
+    Meniru hasil akhir notifikasi gateway: baris ``Payment`` tercatat
+    (idempoten via ``gateway_event_id``), order menjadi ``paid``, dan
+    lisensi ditandatangani server. Dipanggil dari tombol
+    "Saya Sudah Bayar" pada halaman order.
+    """
+    if order.status == "paid":
+        return {"status": "paid", "order_status": "paid"}
+    if order.status != "pending":
+        raise PaymentError("Order ini tidak menunggu pembayaran.")
+
+    event_id = f"{order.order_code}:{SIMULATED_ATM_PROVIDER}:settlement"
+    existing = session.scalar(
+        select(Payment).where(Payment.gateway_event_id == event_id)
+    )
+    if existing is None:
+        session.add(
+            Payment(
+                order_id=order.id,
+                license_id=order.license_id,
+                provider=SIMULATED_ATM_PROVIDER,
+                gateway_event_id=event_id,
+                order_code=order.order_code,
+                amount_idr=order.amount_idr,
+                status="settlement",
+                raw_notification=json.dumps(
+                    {
+                        "simulasi": True,
+                        "provider": SIMULATED_ATM_PROVIDER,
+                        "va_number": simulated_va_number(order.order_code),
+                        "confirmed_at": datetime.now(timezone.utc).isoformat(),
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+        )
+        session.flush()
+
+    order.status = "paid"
+    order.paid_at = datetime.now(timezone.utc)
+    if order.license_id is not None:
+        license_record = session.get(License, order.license_id)
+        if license_record is not None:
+            activate_license(session, license_record, settings)
+    session.commit()
+    return {"status": "paid", "order_status": "paid"}
+
 
 def verify_midtrans_signature(
     notification: dict[str, Any],

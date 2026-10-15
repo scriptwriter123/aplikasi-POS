@@ -13,6 +13,10 @@ from app.services.license_service import (
 from server.app.config import Settings
 from server.app.main import create_app
 from server.app.services import license_service as server_license_service
+from server.app.services.payment_service import (
+    format_va_display,
+    simulated_va_number,
+)
 
 SERVER_KEY = "test-server-key"
 
@@ -765,3 +769,89 @@ def test_order_page_uses_environment_snap_js_url(client, monkeypatch):
     assert page.status_code == 200
     assert expected in page.text
     assert "app.sandbox.midtrans.com" not in page.text
+
+
+def test_simulated_va_number_is_stable_and_formatted():
+    """VA simulasi 16 digit, deterministik per order, tampil per-4-digit."""
+    va = simulated_va_number("POS-ABCDEF123456")
+    assert len(va) == 16 and va.startswith("9876")
+    assert va == simulated_va_number("POS-ABCDEF123456")
+    assert va != simulated_va_number("POS-FFFFF123456")
+    assert format_va_display(va) == " ".join(
+        va[index : index + 4] for index in range(0, 16, 4)
+    )
+
+
+def test_order_page_shows_atm_simulasi_panel(client):
+    """Halaman order pending menampilkan VA + tombol Saya Sudah Bayar."""
+    token, _device, order = _setup_pending_order(client)
+
+    page = client.get(
+        f"/orders/{order['order_code']}", headers=auth_headers(token)
+    )
+    assert page.status_code == 200
+    va = simulated_va_number(order["order_code"])
+    assert format_va_display(va) in page.text
+    assert "Saya Sudah Bayar" in page.text
+    assert "simulasi-bayar" in page.text
+
+
+def test_atm_simulasi_payment_issues_license(client):
+    """Konfirmasi 'Saya Sudah Bayar' menerbitkan lisensi aktif."""
+    token, device, order = _setup_pending_order(client)
+
+    response = client.post(
+        f"/orders/{order['order_code']}/simulasi-bayar",
+        headers=auth_headers(token),
+    )
+    assert response.status_code == 303
+    assert response.headers["location"].endswith("?status=paid")
+
+    licenses = client.get("/api/licenses/me", headers=auth_headers(token))
+    assert licenses.status_code == 200
+    record = licenses.json()[0]
+    assert record["status"] == "active"
+
+    # POS polling ikut melihat lisensi aktif tanpa webhook gateway.
+    poll = client.get("/api/pos/license", headers=bearer(device["device_token"]))
+    assert poll.status_code == 200
+    body = poll.json()
+    assert body["status"] == "active"
+    assert body["document"]["payload"]["installation_id"] == (
+        device["installation_id"]
+    )
+
+    # Dokumen yang diunduh lolos verifikasi Ed25519 POS.
+    download = client.get("/licenses/1/download", headers=auth_headers(token))
+    assert download.status_code == 200
+    document = json.loads(download.text)
+    payload = LicenseService.verify_license_file(
+        _write_poslic(client, download.text),
+        expected_installation_id=document["payload"]["installation_id"],
+        expected_device_id=document["payload"]["device_id"],
+        public_key_path=client.public_key_path,
+    )
+    assert payload["store_name"] == "Toko Contoh"
+
+
+def _write_poslic(client, text: str):
+    path = client.public_key_path.parent / "atm-simulasi.poslic"
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def test_atm_simulasi_payment_is_idempotent(client):
+    """Konfirmasi dua kali tetap sukses dan tidak menerbitkan lisensi ganda."""
+    token, _device, order = _setup_pending_order(client)
+
+    for _ in range(2):
+        response = client.post(
+            f"/orders/{order['order_code']}/simulasi-bayar",
+            headers=auth_headers(token),
+        )
+        assert response.status_code == 303
+        assert response.headers["location"].endswith("?status=paid")
+
+    licenses = client.get("/api/licenses/me", headers=auth_headers(token))
+    assert len(licenses.json()) == 1
+    assert licenses.json()[0]["status"] == "active"

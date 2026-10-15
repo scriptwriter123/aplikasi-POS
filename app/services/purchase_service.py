@@ -4,7 +4,11 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import AuthorizationError, ValidationError
+from app.core.exceptions import (
+    AuthorizationError,
+    LicenseExpiredError,
+    ValidationError,
+)
 from app.models import Account
 from app.models import (
     Product,
@@ -19,9 +23,10 @@ from app.services.financial_service import FinancialService
 
 
 class PurchaseService:
-    def __init__(self, session: Session):
+    def __init__(self, session: Session, *, transaction_locked: bool = False):
         self.session = session
         self.financial = FinancialService(session)
+        self.transaction_locked = transaction_locked
 
     def list_purchases(self, actor: User) -> list[dict]:
         self._require_owner(actor)
@@ -93,6 +98,10 @@ class PurchaseService:
         payment_account_id: int | None = None,
     ) -> PurchaseOrder:
         self._require_owner(actor)
+        if self.transaction_locked:
+            raise LicenseExpiredError(
+                "Masa lisensi berakhir; pencatatan pembelian baru terkunci."
+            )
         self.financial.require_initialized()
         if quantity <= 0:
             raise ValidationError("Jumlah pembelian harus lebih dari 0.")
@@ -231,6 +240,10 @@ class PurchaseService:
         payment_account_id: int,
         payment_method: str,
     ) -> PurchaseOrder:
+        if self.transaction_locked:
+            raise LicenseExpiredError(
+                "Masa lisensi berakhir; pembayaran pembelian baru terkunci."
+            )
         return self.financial.record_purchase_payment(
             actor,
             purchase_id,

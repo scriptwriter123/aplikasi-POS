@@ -34,5 +34,16 @@ dist/
 build/
 *.exe
 
+# Server billing database (lokal, bukan bagian source)
+server/data/
+
+# Jejak simulasi E2E otomatis (scripts/e2e-otomatis.ps1)
+.e2e-real/
+.e2e-gui/
+.probe/
+
+# Log proses lokal (build PyInstaller, uvicorn server billing)
+*.log
+
 # Local reference documents are not part of the application source
 *.pdf

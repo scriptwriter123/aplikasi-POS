@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import (
     InsufficientStockError,
+    LicenseExpiredError,
     PaymentIncompleteError,
     ShiftNotOpenError,
 )
@@ -17,12 +18,25 @@ from app.services.financial_service import FinancialService
 class SalesService:
     """Business transaction boundary for checkout."""
 
-    def __init__(self, session: Session):
+    def __init__(
+        self,
+        session: Session,
+        *,
+        transaction_locked: bool = False,
+        lock_message: str | None = None,
+    ):
         self.session = session
         self.bulk_pricing = BulkPricingService(session)
         self.financial = FinancialService(session)
+        self.transaction_locked = transaction_locked
+        self.lock_message = lock_message or (
+            "Masa trial berakhir dan lisensi belum diperpanjang. "
+            "Transaksi baru terkunci; data tetap dapat dibaca dan diekspor."
+        )
 
     def checkout(self, sale: Sale, items: list[dict], payments: list[dict]):
+        if self.transaction_locked:
+            raise LicenseExpiredError(self.lock_message)
         if not self.financial.is_initialized():
             self.financial.ensure_auto_initialized(sale.cashier_id)
         else:

@@ -131,6 +131,26 @@ Lisensi ditandatangani dengan Ed25519. POS hanya membawa kunci publik; kunci
 privat penerbit tidak pernah masuk ke installer atau tool publisher. Tool
 penerbit meminta kata sandi kunci untuk setiap penerbitan.
 
+### Trial 7 hari dan mode baca-saja
+
+POS dapat dicoba lebih dulu selama 7×24 jam tanpa lisensi (`trial_service`
+menyimpan high-water mark waktu lokal agar jam sistem yang dimundurkan tidak
+memperpanjang trial). Setelah trial berakhir dan belum ada lisensi aktif,
+layar aktivasi menawarkan tombol **Lanjutkan dalam Mode Baca-Saja**:
+
+- Aplikasi tetap bisa dibuka dan login; laporan, master data, serta ekspor
+  tetap dapat dibaca.
+- Transaksi baru terkunci: tombol **Bayar**, buka shift, simpan pembelian,
+  pembayaran, dan pengeluaran dinonaktifkan, dan layer service menolak dengan
+  `LicenseExpiredError` — `SalesService.checkout`, `PurchaseService.record_purchase`
+  /`record_payment`, serta `FinancialService.initialize`/`create_expense`/
+  `record_expense_payment` (pengaman di service, bukan hanya UI).
+- Impor `.poslic` dari layar aktivasi mengembalikan mode normal.
+
+Pelanggan membeli/memperpanjang lisensi melalui website penerbit
+(`server/README.md`), mengunduh `.poslic`, lalu mengimpor tanpa instal ulang;
+perpanjangan menambah masa berlaku mulai dari `expires_at` yang masih berlaku.
+
 ## Pembukuan dan laporan keuangan
 
 Menu **Laporan Keuangan** memakai pembukuan double-entry. Pada pemakaian

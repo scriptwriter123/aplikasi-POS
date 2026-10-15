@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     dana_private_key: str | None = None
     dana_base_url: str = "https://gateway-mp-sit.dana.id"
     pos_data_dir: str | None = None
+    billing_server_url: str | None = None
+    trial_minutes: int | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env",

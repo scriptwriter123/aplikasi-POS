@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h1>Aktivasi &amp; Langganan POS Retail</h1>
+  <p class="muted">
+    Daftarkan akun, unggah permintaan lisensi dari aplikasi POS, lalu bayar paket
+    langganan. File lisensi diunduh dan diimpor ke POS — tanpa instal ulang,
+    dan data toko tetap berada di komputer Anda.
+  </p>
+  {% if not customer %}
+  <p style="margin-top:18px">
+    <a class="btn" href="/register">Buat Akun</a>
+    <a class="btn secondary" href="/login">Masuk</a>
+  </p>
+  {% endif %}
+  <p style="margin-top:16px">
+    <a class="btn" href="/download/installer">Download Aplikasi POS (.exe)</a>
+  </p>
+</div>
+
+<h2 style="margin:26px 0 14px">Paket Langganan</h2>
+<div class="grid">
+  {% for plan in plans %}
+  <div class="card">
+    <strong>{{ plan.name }}</strong>
+    <div class="price">Rp {{ "{:,}".format(plan.price_idr).replace(",", ".") }}
+      <small>{% if plan.duration_days %}/ {{ plan.duration_days }} hari{% else %}/ sekali bayar{% endif %}</small>
+    </div>
+    <p class="muted" style="font-size:14px">
+      {% if plan.duration_days == 30 %}Langganan bulanan, perpanjangan kapan pun.
+      {% elif plan.duration_days == 365 %}Langganan tahunan, lebih hemat.
+      {% else %}Lisensi permanen tanpa masa berlaku.
+      {% endif %}
+    </p>
+    {% if customer %}
+      <a class="btn" href="/dashboard">Pilih di Dashboard</a>
+    {% else %}
+      <a class="btn" href="/register">Daftar untuk Memilih</a>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+
+<div class="card">
+  <h2>Cara Aktivasi</h2>
+  <ol style="line-height:1.9;font-size:15px">
+    <li>Download dan instal aplikasi POS, lalu buka aplikasinya.</li>
+    <li>Di jendela aktivasi POS, masuk dengan akun Anda (email &amp; password) — permintaan lisensi terkirim otomatis.</li>
+    <li>Masuk ke akun Anda di sini, pilih paket, selesaikan pembayaran.</li>
+    <li>POS akan mengunduh lisensi dan mengaktifkan dirinya otomatis setelah pembayaran terdeteksi.</li>
+  </ol>
+</div>
+{% endblock %}

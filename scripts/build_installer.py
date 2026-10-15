@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.5.0"
 
 
 def find_inno_setup_compiler() -> Path:
@@ -71,7 +71,7 @@ def main() -> None:
         raise FileNotFoundError(f"Hasil build aplikasi tidak ditemukan: {executable}")
 
     installer_script = PROJECT_ROOT / "scripts" / "installer.iss"
-    output_dir = PROJECT_ROOT / "build" / "installer"
+    output_dir = PROJECT_ROOT / "build" / "installer_v3"
     output_dir.mkdir(parents=True, exist_ok=True)
     subprocess.run(
         [

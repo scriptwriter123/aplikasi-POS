@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Order {{ order.order_code }} — POS Retail{% endblock %}
+{% block content %}
+<div class="card" style="max-width:620px;margin:30px auto">
+  <h1>Order <code>{{ order.order_code }}</code></h1>
+  {% if flash_status %}
+    <div class="alert {{ 'ok' if flash_status == 'paid' else 'error' }}" style="margin-top:16px">
+      {% if flash_status == "paid" %}
+        Pembayaran diterima. Lisensi telah diterbitkan — muat ulang halaman bila tombol di bawah tidak langsung mengarah ke dashboard.
+      {% elif flash_status == "pending" %}
+        Pembayaran belum terkonfirmasi. Bila Anda baru saja membayar, tunggu beberapa detik lalu periksa ulang.
+      {% else %}
+        {{ flash_message or "Gagal memeriksa status pembayaran." }}
+      {% endif %}
+    </div>
+  {% endif %}
+  <p>Status: <span class="badge {{ order.status }}">{{ order.status }}</span></p>
+  <table>
+    <tr><th>Paket</th><td>{{ order.plan_code }}</td></tr>
+    <tr><th>Nominal</th><td>Rp {{ "{:,}".format(order.amount_idr).replace(",", ".") }}</td></tr>
+    <tr><th>Dibuat</th><td>{{ order.created_at.strftime("%d %b %Y %H:%M") }}</td></tr>
+    {% if order.paid_at %}
+    <tr><th>Dibayar</th><td>{{ order.paid_at.strftime("%d %b %Y %H:%M") }}</td></tr>
+    {% endif %}
+  </table>
+
+  {% if order.status == "paid" %}
+    <div class="alert ok" style="margin-top:16px">
+      Pembayaran diterima. Lisensi telah diterbitkan.
+    </div>
+    <a class="btn" href="/dashboard">Kembali ke Dashboard &amp; Unduh Lisensi</a>
+  {% elif order.status == "pending" and order.snap_token %}
+    <p class="muted" style="margin-top:16px;font-size:14px">
+      Klik tombol di bawah untuk membuka pilihan pembayaran
+      (QRIS, Virtual Account, e-wallet, dll).
+    </p>
+    <button class="btn" id="pay-button" type="button">Bayar Sekarang</button>
+    <a class="btn secondary" href="/dashboard" style="margin-left:8px">Kembali</a>
+    <form method="post" action="/orders/{{ order.order_code }}/check"
+          style="margin-top:16px">
+      <button class="btn secondary" type="submit">Periksa Status Pembayaran</button>
+      <span class="muted" style="font-size:13px;margin-left:8px">
+        Setelah membayar, klik tombol ini atau biarkan POS berjalan — lisensi terbit otomatis.
+      </span>
+    </form>
+    <script src="{{ snap_js_url }}"
+            data-client-key="{{ snap_client_key }}"></script>
+    <script>
+      document.getElementById("pay-button").addEventListener("click", function () {
+        window.snap.pay("{{ order.snap_token }}", {
+          onSuccess: function (result) {
+            window.location.reload();
+          },
+          onPending: function (result) {
+            window.location.reload();
+          },
+          onError: function (result) {
+            alert("Pembayaran gagal. Silakan coba lagi.");
+          },
+          onClose: function () {
+            window.location.reload();
+          }
+        });
+      });
+    </script>
+  {% elif order.status == "pending" %}
+    <p class="muted" style="margin-top:16px;font-size:14px">
+      Gateway belum memberikan token pembayaran untuk order ini. Bila Anda
+      sudah membayar melalui tautan lain, periksa statusnya di sini.
+    </p>
+    <form method="post" action="/orders/{{ order.order_code }}/check">
+      <button class="btn" type="submit">Periksa Status Pembayaran</button>
+      <a class="btn secondary" href="/dashboard">Kembali</a>
+    </form>
+  {% else %}
+    <p class="muted" style="margin-top:16px;font-size:14px">
+      Selesaikan pembayaran sesuai instruksi gateway. POS yang sedang
+      berjalan memeriksa status secara otomatis; tombol di bawah memaksa
+      pemeriksaan ulang bila Anda ingin hasil segera.
+    </p>
+    <form method="post" action="/orders/{{ order.order_code }}/check">
+      <button class="btn" type="submit">Periksa Status Pembayaran</button>
+      <a class="btn secondary" href="/dashboard">Kembali</a>
+    </form>
+  {% endif %}
+</div>
+{% endblock %}

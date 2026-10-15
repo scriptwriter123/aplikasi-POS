@@ -270,6 +270,52 @@ def test_license_view_and_service(qt_application: QApplication, tmp_path: Path):
     view.close()
 
 
+def test_main_window_trial_banner(qt_application: QApplication, full_app_session: Session):
+    owner = full_app_session.query(User).filter_by(username="owner").one()
+    user_mgmt = UserManagementService(
+        full_app_session, UserRepository(full_app_session)
+    )
+
+    window = MainWindow(owner, user_mgmt, trial_message="Sisa 2 menit.")
+    window.show()
+    assert window.trial_banner is not None
+    assert window.trial_banner.isVisible()
+    window.dismiss_trial_banner()
+    assert window.trial_banner is None
+    window.close()
+
+    window_no_trial = MainWindow(owner, user_mgmt, trial_message=None)
+    window_no_trial.show()
+    assert window_no_trial.trial_banner is None
+    window_no_trial.close()
+
+
+def test_license_view_back_button(qt_application: QApplication, tmp_path: Path):
+    from PySide6.QtWidgets import QPushButton
+
+    lic_service = LicenseService(tmp_path, device_id="test-device-id-12345")
+
+    # Tanpa show_back: tidak ada tombol kembali.
+    view = LicenseView(lic_service, show_back=False)
+    assert not any(
+        b.text() == "Kembali ke Aplikasi" for b in view.findChildren(QPushButton)
+    )
+    view.close()
+
+    # Dengan show_back: tombol kembali muncul dan memancarkan sinyal.
+    view_back = LicenseView(lic_service, show_back=True)
+    buttons = [
+        b for b in view_back.findChildren(QPushButton)
+        if b.text() == "Kembali ke Aplikasi"
+    ]
+    assert len(buttons) == 1
+    received = []
+    view_back.back_requested.connect(lambda: received.append(True))
+    buttons[0].click()
+    assert received == [True]
+    view_back.close()
+
+
 def test_login_view_setup_and_branding(qt_application: QApplication, full_app_session: Session):
     repo = UserRepository(full_app_session)
     auth = AuthService(repo)

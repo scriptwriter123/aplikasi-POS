@@ -37,6 +37,8 @@ def main() -> None:
         "--clean",
         "--console" if options.debug_console else "--windowed",
         "--onedir",
+        "--exclude-module",
+        "anyio",
         "--hidden-import",
         "logging.config",
         "--name",

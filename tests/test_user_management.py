@@ -284,7 +284,7 @@ def test_owner_dashboard_fits_all_menu_cards_without_dashboard_heading(
     dashboard.show()
     qt_app.processEvents()
 
-    assert dashboard.menu_grid.count() == 6
+    assert dashboard.menu_grid.count() == 7
     assert dashboard.menu_grid.columnCount() == 3
     assert all(
         dashboard.menu_grid.itemAt(index).widget().minimumHeight() == 125

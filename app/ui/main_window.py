@@ -1,6 +1,15 @@
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QCloseEvent, QIcon
-from PySide6.QtWidgets import QMainWindow, QStackedWidget
+from PySide6.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QMainWindow,
+    QPushButton,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
+)
 
 from app.models import Store
 from app.services.store_settings_service import StoreSettingsService
@@ -21,29 +30,53 @@ from app.ui.widgets import create_copyright_label
 class MainWindow(QMainWindow):
     logout_requested = Signal()
     store_branding_changed = Signal(object)
+    activation_requested = Signal()
 
     def __init__(
         self,
         user,
         user_management: UserManagementService,
         parent=None,
+        *,
+        read_only: bool = False,
+        trial_message: str | None = None,
     ):
         super().__init__(parent)
         self.user = user
         self.user_management = user_management
+        self.read_only = bool(read_only)
         self.store_settings = StoreSettingsService(self.user_management.session)
         self.payment_settings = PaymentSettingsService(self.user_management.session)
         self.store: Store | None = self.store_settings.get_store()
         self.stack = QStackedWidget()
-        self.setCentralWidget(self.stack)
+
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(0)
+        self.trial_banner: QFrame | None = None
+        if trial_message:
+            self.trial_banner = self._build_trial_banner(trial_message)
+            container_layout.addWidget(self.trial_banner)
+        container_layout.addWidget(self.stack)
+        self.setCentralWidget(container)
+
         self.statusBar().addPermanentWidget(create_copyright_label(self))
+        if self.read_only:
+            self.statusBar().showMessage(
+                "MODE BACA-SAJA — lisensi berakhir; transaksi baru terkunci."
+            )
         self.resize(1100, 700)
         self.stack.currentChanged.connect(self._update_window_branding)
 
         role = user.role.name.upper()
         if role in {"ADMIN", "SUPERVISOR", "CASHIER"}:
             self.dashboard = None
-            cashier_view = CashierView(user, self.user_management.session)
+            cashier_view = CashierView(
+                user,
+                self.user_management.session,
+                read_only=self.read_only,
+            )
             cashier_view.logout_requested.connect(self.logout_requested.emit)
             self.stack.addWidget(cashier_view)
             self._update_window_branding(0)
@@ -75,6 +108,7 @@ class MainWindow(QMainWindow):
             self.financial_view = FinancialView(
                 user,
                 self.user_management.session,
+                read_only=self.read_only,
             )
             self.financial_view.back_requested.connect(self.show_dashboard)
             self.stack.addWidget(self.financial_view)
@@ -103,11 +137,15 @@ class MainWindow(QMainWindow):
             self.purchase_view = PurchaseView(
                 user,
                 self.user_management.session,
+                read_only=self.read_only,
             )
             self.purchase_view.back_requested.connect(self.show_dashboard)
             self.stack.addWidget(self.purchase_view)
             self.dashboard.sales_report_requested.connect(
                 self.show_sales_report
+            )
+            self.dashboard.activation_requested.connect(
+                self.activation_requested.emit
             )
             self.dashboard.financial_report_requested.connect(
                 self.show_financial_report
@@ -126,6 +164,48 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event: QCloseEvent) -> None:
         self.logout_requested.emit()
         event.accept()
+
+    def _build_trial_banner(self, message: str) -> QFrame:
+        banner = QFrame()
+        banner.setObjectName("trialBanner")
+        banner.setStyleSheet(
+            "#trialBanner {"
+            " background: #b45309;"
+            " border-bottom: 1px solid #92400e;"
+            "}"
+            "#trialBanner QLabel {"
+            " background: transparent;"
+            " color: #ffffff;"
+            " font-size: 13px;"
+            " font-weight: 600;"
+            "}"
+            "#trialBanner QPushButton {"
+            " background: #ffffff;"
+            " color: #b45309;"
+            " border: none;"
+            " border-radius: 6px;"
+            " padding: 6px 12px;"
+            " font-weight: 700;"
+            "}"
+            "#trialBanner QPushButton:hover { background: #fde68a; }"
+        )
+        layout = QHBoxLayout(banner)
+        layout.setContentsMargins(16, 8, 16, 8)
+        layout.setSpacing(12)
+        label = QLabel(f"TRIAL — {message}")
+        label.setWordWrap(True)
+        layout.addWidget(label, 1)
+        button = QPushButton("Aktivasi Sekarang")
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.clicked.connect(self.activation_requested.emit)
+        layout.addWidget(button)
+        return banner
+
+    def dismiss_trial_banner(self) -> None:
+        if self.trial_banner is not None:
+            self.trial_banner.hide()
+            self.trial_banner.deleteLater()
+            self.trial_banner = None
 
     def show_user_management(self):
         if self.user.role.name.upper() != "OWNER":

@@ -4,7 +4,11 @@ from typing import Iterable
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import AuthorizationError, ValidationError
+from app.core.exceptions import (
+    AuthorizationError,
+    LicenseExpiredError,
+    ValidationError,
+)
 from app.models import (
     Account,
     AuditLog,
@@ -31,8 +35,15 @@ ACCOUNT_CODES = {
 
 
 class FinancialService:
-    def __init__(self, session: Session):
+    def __init__(self, session: Session, *, transaction_locked: bool = False):
         self.session = session
+        self.transaction_locked = transaction_locked
+
+    def _require_transactions_allowed(self):
+        if self.transaction_locked:
+            raise LicenseExpiredError(
+                "Masa lisensi berakhir; transaksi keuangan baru terkunci."
+            )
 
     def settings(self) -> FinancialSettings | None:
         return self.session.get(FinancialSettings, 1)
@@ -69,6 +80,7 @@ class FinancialService:
         opening_balances: dict[int, int],
     ) -> FinancialSettings:
         self._require_owner(actor)
+        self._require_transactions_allowed()
         if effective_from > date.today():
             raise ValidationError("Tanggal mulai pembukuan tidak boleh di masa depan.")
         settings = self.settings()
@@ -259,6 +271,7 @@ class FinancialService:
         payment_method: str,
     ) -> Expense:
         self._require_owner(actor)
+        self._require_transactions_allowed()
         settings = self.require_initialized()
         if amount <= 0:
             raise ValidationError("Nominal pengeluaran harus lebih dari Rp 0.")
@@ -338,6 +351,7 @@ class FinancialService:
         payment_method: str,
     ) -> Expense:
         self._require_owner(actor)
+        self._require_transactions_allowed()
         expense = self.session.get(Expense, expense_id)
         if expense is None:
             raise ValidationError("Pengeluaran tidak ditemukan.")
@@ -366,6 +380,7 @@ class FinancialService:
         payment_method: str,
     ) -> PurchaseOrder:
         self._require_owner(actor)
+        self._require_transactions_allowed()
         purchase = self.session.get(PurchaseOrder, purchase_id)
         if purchase is None:
             raise ValidationError("Pembelian supplier tidak ditemukan.")

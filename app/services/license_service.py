@@ -113,13 +113,17 @@ class LicenseService:
         return installation_id
 
     def create_request(self, store_name: str, output_path: Path) -> Path:
+        _write_json(output_path, self.request_document(store_name))
+        return output_path
+
+    def request_document(self, store_name: str) -> dict[str, Any]:
         normalized_name = store_name.strip()
         if not normalized_name:
             raise LicenseError("Nama toko wajib diisi pada permintaan lisensi.")
         if len(normalized_name) > 150:
             raise LicenseError("Nama toko maksimal 150 karakter.")
 
-        request = {
+        return {
             "schema_version": LICENSE_SCHEMA_VERSION,
             "product": PRODUCT_NAME,
             "installation_id": self.installation_id(),
@@ -127,8 +131,6 @@ class LicenseService:
             "store_name": normalized_name,
             "requested_at": datetime.now(timezone.utc).isoformat(),
         }
-        _write_json(output_path, request)
-        return output_path
 
     def license_status(self) -> tuple[bool, str]:
         if not self.license_path.is_file():
@@ -142,27 +144,64 @@ class LicenseService:
             )
         except (OSError, json.JSONDecodeError, LicenseError):
             return False, "Lisensi tidak valid untuk instalasi ini."
+        expires_at = payload.get("expires_at")
+        if expires_at is not None:
+            expiry = datetime.fromisoformat(expires_at)
+            if expiry <= datetime.now(timezone.utc):
+                return (
+                    False,
+                    f"Lisensi berakhir pada {expiry.date().isoformat()}. "
+                    "Perpanjang langganan melalui website penerbit.",
+                )
         return True, f"Lisensi aktif untuk {payload['store_name']}."
 
     def activate(self, source_path: Path) -> str:
-        payload = self.verify_license_file(
-            source_path,
+        document = self._read_json(source_path)
+        payload = self.verify_license_document(
+            document,
             expected_installation_id=self.installation_id(),
             expected_device_id=self.device_id(),
             public_key_path=self.public_key_path,
         )
-        _write_json(self.license_path, self._read_json(source_path))
+        _write_json(self.license_path, document)
         return payload["store_name"]
 
-    @staticmethod
+    def activate_from_document(self, document: dict[str, Any]) -> str:
+        """Verifikasi & pasang lisensi dari dokumen (hasil unduh otomatis)."""
+        payload = self.verify_license_document(
+            document,
+            expected_installation_id=self.installation_id(),
+            expected_device_id=self.device_id(),
+            public_key_path=self.public_key_path,
+        )
+        _write_json(self.license_path, document)
+        return payload["store_name"]
+
+    @classmethod
     def verify_license_file(
+        cls,
         license_path: Path,
         *,
         expected_installation_id: str,
         expected_device_id: str,
         public_key_path: Path = PUBLIC_KEY_PATH,
     ) -> dict[str, Any]:
-        license_document = LicenseService._read_json(license_path)
+        document = cls._read_json(license_path)
+        return cls.verify_license_document(
+            document,
+            expected_installation_id=expected_installation_id,
+            expected_device_id=expected_device_id,
+            public_key_path=public_key_path,
+        )
+
+    @staticmethod
+    def verify_license_document(
+        license_document: dict[str, Any],
+        *,
+        expected_installation_id: str,
+        expected_device_id: str,
+        public_key_path: Path = PUBLIC_KEY_PATH,
+    ) -> dict[str, Any]:
         payload = license_document.get("payload")
         signature_text = license_document.get("signature")
         if not isinstance(payload, dict) or not isinstance(signature_text, str):
@@ -185,8 +224,20 @@ class LicenseService:
             raise LicenseError("Nama toko pada lisensi tidak valid.")
         if not isinstance(payload.get("issued_at"), str):
             raise LicenseError("Tanggal penerbitan lisensi tidak valid.")
-        if payload.get("expires_at") is not None:
-            raise LicenseError("Format masa berlaku lisensi tidak didukung.")
+        expires_at = payload.get("expires_at")
+        if expires_at is not None:
+            if not isinstance(expires_at, str):
+                raise LicenseError("Format masa berlaku lisensi tidak didukung.")
+            try:
+                parsed_expiry = datetime.fromisoformat(expires_at)
+            except ValueError as exc:
+                raise LicenseError(
+                    "Format masa berlaku lisensi tidak didukung."
+                ) from exc
+            if parsed_expiry.tzinfo is None:
+                raise LicenseError(
+                    "Format masa berlaku lisensi tidak didukung."
+                )
 
         try:
             signature = base64.b64decode(signature_text, validate=True)

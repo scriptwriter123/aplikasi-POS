@@ -24,7 +24,11 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.core.exceptions import AuthorizationError, ValidationError
+from app.core.exceptions import (
+    AuthorizationError,
+    LicenseExpiredError,
+    ValidationError,
+)
 from app.hardware.report_exporter import ReportExporter
 from app.models import Expense
 from app.services.financial_service import FinancialService
@@ -179,11 +183,17 @@ class FinancialView(QWidget):
         session,
         exporter: ReportExporter | None = None,
         parent=None,
+        *,
+        read_only: bool = False,
     ):
         super().__init__(parent)
         self.actor = actor
         self.session = session
-        self.service = FinancialService(session)
+        self.read_only = bool(read_only)
+        self.service = FinancialService(
+            session,
+            transaction_locked=self.read_only,
+        )
         self.exporter = exporter or ReportExporter()
         self.report_data: dict | None = None
         self.expense_ids: list[int] = []
@@ -210,6 +220,17 @@ class FinancialView(QWidget):
             "border-radius: 6px;"
         )
         root.addWidget(self.setup_status)
+        if self.read_only:
+            banner = QLabel(
+                "MODE BACA-SAJA — pengeluaran, pembayaran, dan pembukuan "
+                "baru terkunci; laporan tetap dapat dibaca dan diekspor."
+            )
+            banner.setStyleSheet(
+                "color: #fef3c7; background: #78350f; border-radius: 8px; "
+                "padding: 9px 12px; font-weight: 600;"
+            )
+            banner.setWordWrap(True)
+            root.addWidget(banner)
         setup_row = QHBoxLayout()
         self.setup_button = QPushButton("Atur Saldo Awal / Aktifkan")
         self.setup_button.clicked.connect(self._setup_finances)
@@ -310,9 +331,11 @@ class FinancialView(QWidget):
             initialized = (
                 settings is not None and settings.effective_from is not None
             )
-            self.setup_button.setEnabled(not initialized)
-            self.expense_button.setEnabled(initialized)
-            self.pay_expense_button.setEnabled(initialized)
+            self.setup_button.setEnabled(not initialized and not self.read_only)
+            self.expense_button.setEnabled(initialized and not self.read_only)
+            self.pay_expense_button.setEnabled(
+                initialized and not self.read_only
+            )
             if settings is not None and settings.effective_from is not None:
                 self.setup_status.setStyleSheet(
                     "color: #86efac; background: #12291b; padding: 8px; "
@@ -342,7 +365,12 @@ class FinancialView(QWidget):
                 dialog.effective_date_input.date().toPython(),
                 dialog.opening_balances(),
             )
-        except (AuthorizationError, ValidationError, SQLAlchemyError) as exc:
+        except (
+            AuthorizationError,
+            LicenseExpiredError,
+            ValidationError,
+            SQLAlchemyError,
+        ) as exc:
             QMessageBox.warning(self, "Pembukuan gagal diaktifkan", str(exc))
             return
         QMessageBox.information(
@@ -382,7 +410,12 @@ class FinancialView(QWidget):
                 ),
                 payment_method=dialog.payment_method_input.currentData(),
             )
-        except (AuthorizationError, ValidationError, SQLAlchemyError) as exc:
+        except (
+            AuthorizationError,
+            LicenseExpiredError,
+            ValidationError,
+            SQLAlchemyError,
+        ) as exc:
             QMessageBox.warning(self, "Pengeluaran gagal disimpan", str(exc))
             return
         self.refresh_view()
@@ -448,7 +481,12 @@ class FinancialView(QWidget):
                 account.id,
                 "CASH" if account.code == "1000" else "BANK",
             )
-        except (AuthorizationError, ValidationError, SQLAlchemyError) as exc:
+        except (
+            AuthorizationError,
+            LicenseExpiredError,
+            ValidationError,
+            SQLAlchemyError,
+        ) as exc:
             QMessageBox.warning(self, "Pembayaran gagal dicatat", str(exc))
             return
         self.refresh_view()

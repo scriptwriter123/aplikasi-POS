@@ -19,7 +19,11 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.core.exceptions import AuthorizationError, ValidationError
+from app.core.exceptions import (
+    AuthorizationError,
+    LicenseExpiredError,
+    ValidationError,
+)
 from app.models import Account, Product, PurchaseOrder
 from app.services.purchase_service import PurchaseService
 from app.ui.widgets import create_copyright_label
@@ -30,11 +34,15 @@ class PurchaseView(QWidget):
     back_requested = Signal()
     suppliers_requested = Signal()
 
-    def __init__(self, actor, session, parent=None):
+    def __init__(self, actor, session, parent=None, *, read_only=False):
         super().__init__(parent)
         self.actor = actor
         self.session = session
-        self.service = PurchaseService(session)
+        self.read_only = bool(read_only)
+        self.service = PurchaseService(
+            session,
+            transaction_locked=self.read_only,
+        )
         self.setWindowTitle("Belanja dan Supplier")
 
         root = QVBoxLayout(self)
@@ -109,6 +117,20 @@ class PurchaseView(QWidget):
         actions.addWidget(self.manage_suppliers_button)
         actions.addStretch(1)
         root.addLayout(actions)
+
+        if self.read_only:
+            banner = QLabel(
+                "MODE BACA-SAJA — pembelian dan pembayaran baru terkunci "
+                "karena masa lisensi berakhir."
+            )
+            banner.setStyleSheet(
+                "color: #fef3c7; background: #78350f; border-radius: 8px; "
+                "padding: 9px 12px; font-weight: 600;"
+            )
+            banner.setWordWrap(True)
+            root.addWidget(banner)
+            self.record_button.setEnabled(False)
+            self.mark_paid_button.setEnabled(False)
 
         self.purchase_table = QTableWidget(0, 8)
         self.purchase_table.setHorizontalHeaderLabels(
@@ -236,7 +258,9 @@ class PurchaseView(QWidget):
             self.supplier_input.setCurrentIndex(supplier_index)
         elif self.supplier_input.count():
             self.supplier_input.setCurrentIndex(0)
-        self.record_button.setEnabled(bool(self.supplier_input.count()))
+        self.record_button.setEnabled(
+            bool(self.supplier_input.count()) and not self.read_only
+        )
 
     def _update_due_date_state(self, _index: int = -1):
         self.due_date_input.setEnabled(
@@ -275,7 +299,12 @@ class PurchaseView(QWidget):
                     else None
                 ),
             )
-        except (AuthorizationError, ValidationError, SQLAlchemyError) as exc:
+        except (
+            AuthorizationError,
+            LicenseExpiredError,
+            ValidationError,
+            SQLAlchemyError,
+        ) as exc:
             QMessageBox.warning(self, "Pembelian tidak dapat disimpan", str(exc))
             return
 
@@ -331,7 +360,12 @@ class PurchaseView(QWidget):
                 payment_account_id,
                 "CASH" if account.code == "1000" else "BANK",
             )
-        except (AuthorizationError, ValidationError, SQLAlchemyError) as exc:
+        except (
+            AuthorizationError,
+            LicenseExpiredError,
+            ValidationError,
+            SQLAlchemyError,
+        ) as exc:
             QMessageBox.warning(self, "Status pembayaran tidak berubah", str(exc))
             return
         self.refresh_data()

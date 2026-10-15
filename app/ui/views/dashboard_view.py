@@ -23,6 +23,7 @@ class DashboardView(QWidget):
     master_data_requested = Signal()
     store_settings_requested = Signal()
     suppliers_requested = Signal()
+    activation_requested = Signal()
 
     def __init__(self, user, parent=None, store: Store | None = None):
         super().__init__(parent)
@@ -164,6 +165,19 @@ class DashboardView(QWidget):
                 1,
                 2,
             )
+            self.menu_grid.addWidget(
+                self._create_card(
+                    "Aktivasi Lisensi",
+                    "Aktifkan atau perpanjang langganan POS Retail agar "
+                    "aplikasi berfungsi penuh.",
+                    "Buka Aktivasi",
+                    self.activation_requested.emit,
+                    accent="#b45309",
+                    accent_hover="#d97706",
+                ),
+                2,
+                0,
+            )
         else:
             self.menu_grid.addWidget(
                 self._create_card(
@@ -188,7 +202,15 @@ class DashboardView(QWidget):
         for column in range(3 if role_name == "OWNER" else 2):
             self.menu_grid.setColumnStretch(column, 1)
 
-    def _create_card(self, title, description, action, callback):
+    def _create_card(
+        self,
+        title,
+        description,
+        action,
+        callback,
+        accent="#007acc",
+        accent_hover="#0098ff",
+    ):
         card = QFrame()
         card.setObjectName("dashboardCard")
         card.setStyleSheet(
@@ -206,9 +228,9 @@ class DashboardView(QWidget):
         description_label.setStyleSheet("font-size: 12px; color: #a1a1aa;")
         action_button = QPushButton(action)
         action_button.setStyleSheet(
-            "QPushButton { background: #007acc; color: white; border: none; "
+            f"QPushButton {{ background: {accent}; color: white; border: none; "
             "border-radius: 7px; padding: 7px 10px; font-weight: 600; }"
-            "QPushButton:hover { background: #0098ff; }"
+            f"QPushButton:hover {{ background: {accent_hover}; }}"
         )
         action_button.clicked.connect(callback)
         layout.addWidget(title_label)

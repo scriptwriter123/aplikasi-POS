@@ -56,12 +56,13 @@ from app.ui.widgets import create_copyright_label
 class CashierView(QWidget):
     logout_requested = Signal()
 
-    def __init__(self, user, session, parent=None):
+    def __init__(self, user, session, parent=None, *, read_only=False):
         super().__init__(parent)
         self.user = user
         self.session = session
+        self.read_only = bool(read_only)
         self.products = ProductRepository(session)
-        self.sales = SalesService(session)
+        self.sales = SalesService(session, transaction_locked=self.read_only)
         self.bulk_pricing = BulkPricingService(session)
         self.daily_reports = CashierDailyReportService(session)
         self.shift_service = ShiftService(session, ShiftRepository(session))
@@ -103,6 +104,18 @@ class CashierView(QWidget):
         header.addWidget(self.daily_report_button)
         header.addWidget(self.logout_button)
         root.addLayout(header)
+
+        if self.read_only:
+            banner = QLabel(
+                "MODE BACA-SAJA — Masa trial/lisensi berakhir. "
+                "Transaksi baru terkunci; data tetap dapat dibaca dan diekspor."
+            )
+            banner.setStyleSheet(
+                "color: #fef3c7; background: #78350f; border-radius: 8px; "
+                "padding: 9px 12px; font-weight: 600;"
+            )
+            banner.setWordWrap(True)
+            root.addWidget(banner)
 
         search_bar = QHBoxLayout()
         self.search_input = QLineEdit()
@@ -243,6 +256,13 @@ class CashierView(QWidget):
             "QPushButton:hover { background: #15803d; }"
         )
         self.pay_button.clicked.connect(self._checkout)
+        if self.read_only:
+            self.pay_button.setEnabled(False)
+            self.hold_button.setEnabled(False)
+            self.open_shift_button.setEnabled(False)
+            self.status_label.setText(
+                "Mode baca-saja: pembayaran dan shift dinonaktifkan."
+            )
         footer.addWidget(self.pay_button)
         root.addLayout(footer)
 
@@ -461,7 +481,11 @@ class CashierView(QWidget):
         if self.cart_table.columnWidth(qty_column) < min_qty_width:
             self.cart_table.setColumnWidth(qty_column, min_qty_width)
         self.total_label.setText(rupiah(total))
-        self.pay_button.setEnabled(bool(self.cart) and self.current_shift is not None)
+        self.pay_button.setEnabled(
+            bool(self.cart)
+            and self.current_shift is not None
+            and not self.read_only
+        )
 
     def _set_cart_quantity(self, row: int, quantity: int):
         product_ids = list(self.cart)
@@ -522,7 +546,13 @@ class CashierView(QWidget):
             self._show_error("Gagal memuat shift", str(exc))
             return
         self.current_shift = shift
-        if shift is None:
+        if self.read_only:
+            self.shift_label.setText(
+                "Mode baca-saja · shift dan transaksi terkunci"
+            )
+            self.open_shift_button.setEnabled(False)
+            self.pay_button.setEnabled(False)
+        elif shift is None:
             self.shift_label.setText("Shift belum dibuka")
             self.open_shift_button.setEnabled(True)
             self.pay_button.setEnabled(False)
@@ -597,6 +627,15 @@ class CashierView(QWidget):
         self.search_input.setFocus()
 
     def _checkout(self):
+        if self.read_only:
+            QMessageBox.warning(
+                self,
+                "Transaksi terkunci",
+                "Masa trial/lisensi berakhir. Transaksi baru terkunci; "
+                "data tetap dapat dibaca dan diekspor. "
+                "Aktivasi lisensi untuk kembali bertransaksi.",
+            )
+            return
         if not self.cart:
             self.status_label.setText("Keranjang kosong.")
             return

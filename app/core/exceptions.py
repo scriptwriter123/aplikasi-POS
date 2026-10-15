@@ -22,5 +22,9 @@ class ShiftNotOpenError(POSException):
     pass
 
 
+class LicenseExpiredError(POSException):
+    pass
+
+
 class ValidationError(POSException):
     pass

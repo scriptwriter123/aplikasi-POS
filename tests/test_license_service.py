@@ -1,11 +1,14 @@
 import json
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import pytest
+from cryptography.hazmat.primitives import serialization
 
 from app.services.license_service import (
     LicenseError,
     LicenseService,
+    canonical_json,
     generate_license_keypair,
     issue_license,
 )
@@ -171,3 +174,131 @@ def test_short_private_key_passphrase_does_not_create_key_files(tmp_path):
 
     assert not private_key.exists()
     assert not public_key.exists()
+
+
+def _write_dated_license(
+    tmp_path,
+    private_key_path,
+    *,
+    expires_at,
+    installation_id,
+    device_id="a" * 64,
+):
+    private_key = serialization.load_pem_private_key(
+        private_key_path.read_bytes(),
+        password=b"safe-test-passphrase",
+    )
+    payload = {
+        "schema_version": 1,
+        "product": "POS Retail",
+        "license_id": "AB" * 32,
+        "store_name": "Toko Contoh",
+        "installation_id": installation_id,
+        "device_id": device_id,
+        "issued_at": datetime.now(timezone.utc).isoformat(),
+        "expires_at": expires_at.isoformat() if expires_at else None,
+    }
+    signature = private_key.sign(canonical_json(payload))
+    import base64
+
+    document = {
+        "payload": payload,
+        "signature": base64.b64encode(signature).decode("ascii"),
+    }
+    path = tmp_path / "dated.poslic"
+    path.write_text(json.dumps(document), encoding="utf-8")
+    return path
+
+
+def test_dated_license_verifies_and_reports_active_until_expiry(
+    tmp_path, signing_keys
+):
+    private_key, public_key = signing_keys
+    installation_id = str(uuid.uuid4())
+    expires_at = datetime.now(timezone.utc) + timedelta(days=30)
+    license_path = _write_dated_license(
+        tmp_path, private_key, expires_at=expires_at, installation_id=installation_id
+    )
+
+    payload = LicenseService.verify_license_file(
+        license_path,
+        expected_installation_id=installation_id,
+        expected_device_id="a" * 64,
+        public_key_path=public_key,
+    )
+    assert payload["expires_at"] == expires_at.isoformat()
+
+    service = LicenseService(
+        tmp_path / "data", device_id="a" * 64, public_key_path=public_key
+    )
+    service.license_path.parent.mkdir(parents=True, exist_ok=True)
+    service.license_path.write_text(
+        license_path.read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    # installation_id file must match the license payload
+    service.installation_id_path.write_text(installation_id, encoding="utf-8")
+    licensed, status = service.license_status()
+    assert licensed is True
+    assert "Lisensi aktif" in status
+
+
+def test_expired_license_reports_not_licensed(tmp_path, signing_keys):
+    private_key, public_key = signing_keys
+    installation_id = str(uuid.uuid4())
+    expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
+    license_path = _write_dated_license(
+        tmp_path, private_key, expires_at=expires_at, installation_id=installation_id
+    )
+
+    payload = LicenseService.verify_license_file(
+        license_path,
+        expected_installation_id=installation_id,
+        expected_device_id="a" * 64,
+        public_key_path=public_key,
+    )
+    assert payload["expires_at"] == expires_at.isoformat()
+
+    service = LicenseService(
+        tmp_path / "data", device_id="a" * 64, public_key_path=public_key
+    )
+    service.license_path.parent.mkdir(parents=True, exist_ok=True)
+    service.license_path.write_text(
+        license_path.read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    service.installation_id_path.write_text(installation_id, encoding="utf-8")
+    licensed, status = service.license_status()
+    assert licensed is False
+    assert "berakhir" in status
+
+
+def test_license_with_invalid_expiry_format_is_rejected(tmp_path, signing_keys):
+    private_key, public_key = signing_keys
+    installation_id = str(uuid.uuid4())
+    license_path = _write_dated_license(
+        tmp_path,
+        private_key,
+        expires_at=datetime.now(timezone.utc) + timedelta(days=1),
+        installation_id=installation_id,
+    )
+    document = json.loads(license_path.read_text(encoding="utf-8"))
+    document["payload"]["expires_at"] = "bukan-tanggal"
+    # signature no longer matches payload -> fails at signature check first
+    # unless we re-sign; instead change expires_at to a non-string type
+    document["payload"]["expires_at"] = 12345
+    private_key_obj = serialization.load_pem_private_key(
+        private_key.read_bytes(), password=b"safe-test-passphrase"
+    )
+    import base64
+
+    document["signature"] = base64.b64encode(
+        private_key_obj.sign(canonical_json(document["payload"]))
+    ).decode("ascii")
+    license_path.write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(LicenseError, match="Format masa berlaku"):
+        LicenseService.verify_license_file(
+            license_path,
+            expected_installation_id=installation_id,
+            expected_device_id="a" * 64,
+            public_key_path=public_key,
+        )

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "pos-python": {
+      "type": "local",
+      "command": [
+        "E:\\POS\\KASIR\\venv\\Scripts\\python.exe",
+        "E:\\POS\\KASIR\\mcp_server\\server.py"
+      ],
+      "cwd": "E:\\POS\\KASIR",
+      "enabled": true,
+      "timeout": 300000
+    },
+    "playwright": {
+      "type": "local",
+      "command": [
+        "C:\\Users\\ANJAY SOLUTION\\AppData\\Local\\pi-node\\current\\node.exe",
+        "E:\\POS\\KASIR\\node_modules\\@playwright\\mcp\\cli.js",
+        "--headless=false",
+        "--viewport-size=1280,800"
+      ],
+      "cwd": "E:\\POS\\KASIR",
+      "enabled": true,
+      "timeout": 15000
+    }
+  }
+}

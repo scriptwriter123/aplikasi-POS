@@ -5,6 +5,7 @@ from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
@@ -61,6 +62,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title=app_settings.app_name, lifespan=lifespan)
     app.state.settings = app_settings
     app.state.session_factory = session_factory
+    static_dir = Path(__file__).resolve().parent / "static"
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
     def get_session():
         session = session_factory()

@@ -35,28 +35,11 @@
         Klik tombol di bawah untuk membuka pilihan pembayaran Midtrans
         (QRIS, Virtual Account, e-wallet, dll).
       </p>
-      <button class="btn" id="pay-button" type="button">Bayar Sekarang (Midtrans)</button>
+      <button class="btn" id="pay-button" type="button"
+              data-snap-token="{{ order.snap_token }}">Bayar Sekarang (Midtrans)</button>
       <a class="btn secondary" href="/dashboard" style="margin-left:8px">Kembali</a>
       <script src="{{ snap_js_url }}"
               data-client-key="{{ snap_client_key }}"></script>
-      <script>
-        document.getElementById("pay-button").addEventListener("click", function () {
-          window.snap.pay("{{ order.snap_token }}", {
-            onSuccess: function (result) {
-              window.location.reload();
-            },
-            onPending: function (result) {
-              window.location.reload();
-            },
-            onError: function (result) {
-              alert("Pembayaran gagal. Silakan coba lagi.");
-            },
-            onClose: function () {
-              window.location.reload();
-            }
-          });
-        });
-      </script>
     {% else %}
       <a class="btn secondary" href="/dashboard" style="margin-top:16px">Kembali</a>
     {% endif %}
@@ -73,7 +56,8 @@
           <th>No. Virtual Account</th>
           <td>
             <code id="va-display" style="font-size:17px;letter-spacing:2px">{{ va_number_display }}</code>
-            <button class="btn secondary small" type="button" id="copy-va" style="margin-left:8px">Salin</button>
+            <button class="btn secondary small" type="button" id="copy-va"
+                    data-va="{{ va_number }}" style="margin-left:8px">Salin</button>
           </td>
         </tr>
         <tr>
@@ -84,27 +68,6 @@
       <form method="post" action="/orders/{{ order.order_code }}/simulasi-bayar" style="margin-top:14px">
         <button class="btn" type="submit">Saya Sudah Bayar — Aktifkan Lisensi</button>
       </form>
-      <script>
-        document.getElementById("copy-va").addEventListener("click", function () {
-          var va = "{{ va_number }}";
-          var button = this;
-          function done() {
-            button.textContent = "Tersalin ✓";
-            setTimeout(function () { button.textContent = "Salin"; }, 2000);
-          }
-          if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(va).then(done, done);
-          } else {
-            var area = document.createElement("textarea");
-            area.value = va;
-            document.body.appendChild(area);
-            area.select();
-            document.execCommand("copy");
-            document.body.removeChild(area);
-            done();
-          }
-        });
-      </script>
     </div>
 
     <form method="post" action="/orders/{{ order.order_code }}/check"
@@ -114,6 +77,7 @@
         Pembayaran Midtrans terverifikasi otomatis; ATM simulasi pakai tombol di atas.
       </span>
     </form>
+    <script src="/static/order.js"></script>
   {% else %}
     <p class="muted" style="margin-top:16px;font-size:14px">
       Selesaikan pembayaran sesuai instruksi gateway. POS yang sedang

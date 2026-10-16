@@ -66,7 +66,8 @@ def model_session():
 
 def test_roadmap_tables_are_registered_in_metadata():
     assert NEW_TABLES <= set(Base.metadata.tables)
-    assert len(Base.metadata.tables) == 35
+    # 35 tabel lama + inventaris_toko + login_history.
+    assert len(Base.metadata.tables) == 37
     assert role_permissions.name == "role_permissions"
 
 

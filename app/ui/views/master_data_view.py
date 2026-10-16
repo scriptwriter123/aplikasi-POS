@@ -336,6 +336,146 @@ class EditExcelDialog(QDialog):
         self.accept()
 
 
+class BulkTierRow(QWidget):
+    def __init__(self, label_text, get_regular_price, service, parent=None):
+        super().__init__(parent)
+        self._get_regular_price = get_regular_price
+        self._service = service
+        self.pricing_mode = "PERCENT"
+        self._syncing = False
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        self.active_checkbox = QCheckBox(label_text)
+        layout.addWidget(self.active_checkbox)
+        layout.addWidget(QLabel("Qty ≥"))
+        self.threshold_input = QSpinBox()
+        self.threshold_input.setRange(1, 2_000_000_000)
+        self.threshold_input.setValue(1)
+        layout.addWidget(self.threshold_input)
+        layout.addWidget(QLabel("Harga"))
+        self.price_input = QDoubleSpinBox()
+        self.price_input.setDecimals(0)
+        self.price_input.setRange(0, 2_000_000_000)
+        self.price_input.setGroupSeparatorShown(True)
+        self.price_input.setSingleStep(500)
+        layout.addWidget(self.price_input)
+        layout.addWidget(QLabel("Diskon"))
+        self.discount_input = QDoubleSpinBox()
+        self.discount_input.setDecimals(2)
+        self.discount_input.setRange(0.01, 100)
+        self.discount_input.setSingleStep(1)
+        self.discount_input.setSuffix("%")
+        layout.addWidget(self.discount_input)
+        layout.addStretch(1)
+
+        self.price_input.valueChanged.connect(self._price_changed)
+        self.discount_input.valueChanged.connect(self._discount_changed)
+
+    def set_inputs_enabled(self, enabled: bool):
+        for widget in (
+            self.threshold_input,
+            self.price_input,
+            self.discount_input,
+        ):
+            widget.setEnabled(enabled)
+
+    def _compute_price(self, percent: float) -> int:
+        if self._service is None:
+            return 0
+        regular_price = self._get_regular_price()
+        if regular_price <= 0:
+            return 0
+        return self._service.special_price(
+            regular_price,
+            Decimal(str(percent)),
+        )
+
+    def load_tier(
+        self,
+        quantity_threshold: int,
+        discount_percent,
+        special_price: int,
+        pricing_mode: str,
+    ):
+        self._syncing = True
+        self.threshold_input.setValue(quantity_threshold)
+        self.pricing_mode = pricing_mode
+        if pricing_mode == "PRICE":
+            self.price_input.setValue(special_price)
+            regular_price = self._get_regular_price()
+            percent = (
+                self._service.discount_percent_for_price(
+                    regular_price,
+                    special_price,
+                )
+                if self._service is not None and regular_price > 0
+                else Decimal("1")
+            )
+            self.discount_input.setValue(float(percent))
+        else:
+            self.discount_input.setValue(float(discount_percent))
+            self.price_input.setValue(
+                self._compute_price(float(discount_percent))
+            )
+        self._syncing = False
+
+    def load_default(self, quantity_threshold: int, discount_percent: float):
+        self._syncing = True
+        self.threshold_input.setValue(quantity_threshold)
+        self.pricing_mode = "PERCENT"
+        self.discount_input.setValue(discount_percent)
+        self.price_input.setValue(self._compute_price(discount_percent))
+        self._syncing = False
+
+    def recompute_price(self):
+        if self._syncing or self.pricing_mode != "PERCENT":
+            return
+        self._syncing = True
+        self.price_input.setValue(
+            self._compute_price(self.discount_input.value())
+        )
+        self._syncing = False
+
+    def _price_changed(self, value: float):
+        if self._syncing:
+            return
+        regular_price = self._get_regular_price()
+        if regular_price <= 0 or self._service is None:
+            return
+        self.pricing_mode = "PRICE"
+        percent = self._service.discount_percent_for_price(
+            regular_price,
+            int(value),
+        )
+        if percent > 0:
+            self._syncing = True
+            self.discount_input.setValue(float(percent))
+            self._syncing = False
+
+    def _discount_changed(self, _value: float):
+        if self._syncing:
+            return
+        self.pricing_mode = "PERCENT"
+        self.recompute_price()
+
+    def tier_data(self) -> dict:
+        return {
+            "quantity_threshold": self.threshold_input.value(),
+            "discount_percent": Decimal(str(self.discount_input.value())),
+            "special_price": int(self.price_input.value()),
+            "pricing_mode": self.pricing_mode,
+        }
+
+
+BULK_TIER_DEFAULTS = (
+    ("Tingkat 1", 2, True, 2.0),
+    ("Tingkat 2", 3, True, 5.0),
+    ("Tingkat 3", 5, False, 10.0),
+)
+
+
 class BulkPriceDialog(QDialog):
     def __init__(
         self,
@@ -349,7 +489,7 @@ class BulkPriceDialog(QDialog):
         self.actor = actor
         self.products = products
         self.setWindowTitle("Harga Spesial Partai")
-        self.setMinimumWidth(520)
+        self.setMinimumWidth(560)
 
         layout = QVBoxLayout(self)
         form = QFormLayout()
@@ -362,54 +502,35 @@ class BulkPriceDialog(QDialog):
         self.product_input.currentIndexChanged.connect(self._load_rule)
         form.addRow("Produk", self.product_input)
 
-        self.quantity_threshold_input = QSpinBox()
-        self.quantity_threshold_input.setRange(1, 2_000_000_000)
-        self.quantity_threshold_input.setValue(1)
-        self.quantity_threshold_input.valueChanged.connect(
-            self._update_discount_display
-        )
-        form.addRow("Batas jumlah barang", self.quantity_threshold_input)
-
-        quantity_hint = QLabel(
-            "Harga spesial berlaku saat qty yang dibeli sama dengan atau "
-            "lebih besar dari batas ini."
-        )
-        quantity_hint.setWordWrap(True)
-        form.addRow("", quantity_hint)
-
         self.regular_price_label = QLabel("-")
         self.regular_price_label.setStyleSheet(
             "font-weight: 600; color: #e4e4e7;"
         )
         form.addRow("Harga satuan saat ini", self.regular_price_label)
 
-        self._syncing_price_inputs = False
-        self.pricing_mode = "PERCENT"
-        self.special_price_input = QDoubleSpinBox()
-        self.special_price_input.setDecimals(0)
-        self.special_price_input.setRange(0, 2_000_000_000)
-        self.special_price_input.setGroupSeparatorShown(True)
-        self.special_price_input.valueChanged.connect(
-            self._manual_price_changed
+        quantity_hint = QLabel(
+            "Harga berlaku berjenjang: saat qty dibeli, ambang tingkat "
+            "tertinggi yang tercapai dipakai (contoh ambang 2 dan 3 → "
+            "qty 4 memakai harga ambang 3). Maksimal 3 tingkat per produk."
         )
-        form.addRow("Harga spesial per satuan", self.special_price_input)
-
-        self.discount_input = QDoubleSpinBox()
-        self.discount_input.setDecimals(2)
-        self.discount_input.setRange(0.01, 100)
-        self.discount_input.setSingleStep(1)
-        self.discount_input.setSuffix("%")
-        self.discount_input.valueChanged.connect(self._discount_percent_changed)
-        form.addRow("Potongan harga", self.discount_input)
-
-        price_hint = QLabel(
-            "Isi harga spesial atau persentase potongan; nilai di kolom "
-            "lain akan dihitung otomatis."
-        )
-        price_hint.setWordWrap(True)
-        price_hint.setStyleSheet("color: #a1a1aa;")
-        form.addRow("", price_hint)
+        quantity_hint.setWordWrap(True)
+        quantity_hint.setStyleSheet("color: #a1a1aa;")
+        form.addRow("", quantity_hint)
         layout.addLayout(form)
+
+        tiers_form = QFormLayout()
+        self.tier_rows: list[BulkTierRow] = []
+        for label, default_qty, active, default_disc in BULK_TIER_DEFAULTS:
+            row = BulkTierRow(
+                label,
+                lambda: self._selected_regular_price(),
+                self.service,
+            )
+            row.active_checkbox.setChecked(active)
+            row.load_default(default_qty, default_disc)
+            self.tier_rows.append(row)
+            tiers_form.addRow(row)
+        layout.addLayout(tiers_form)
 
         self.rules_table = QTableWidget(0, 4)
         self.rules_table.setHorizontalHeaderLabels(
@@ -423,7 +544,7 @@ class BulkPriceDialog(QDialog):
         )
         self.rules_table.cellClicked.connect(self._select_rule_from_table)
         self.rules_table.setToolTip(
-            "Klik produk pada tabel untuk memilih dan mengubah aturannya."
+            "Klik baris untuk memilih produk dan mengubah semua tingkatnya."
         )
         self.rules_table.setMaximumHeight(180)
         layout.addWidget(self.rules_table)
@@ -454,93 +575,39 @@ class BulkPriceDialog(QDialog):
             None,
         )
 
-    def _update_special_price(self, *_args):
+    def _selected_regular_price(self) -> int:
         product = self._selected_product()
-        if product is None:
-            self.regular_price_label.setText("-")
-            return
-        self.regular_price_label.setText(rupiah(product.selling_price))
-        self._syncing_price_inputs = True
-        self.special_price_input.setValue(
-            self.service.special_price(
-                product.selling_price,
-                Decimal(str(self.discount_input.value())),
-            )
-        )
-        self._syncing_price_inputs = False
-
-    def _update_discount_display(self, *_args):
-        if self.pricing_mode == "PERCENT":
-            self._update_special_price()
-
-    def _manual_price_changed(self, value: float):
-        if self._syncing_price_inputs:
-            return
-        product = self._selected_product()
-        if product is None or product.selling_price <= 0:
-            return
-        self.pricing_mode = "PRICE"
-        percent = self.service.discount_percent_for_price(
-            product.selling_price,
-            int(value),
-        )
-        if percent > 0:
-            self._syncing_price_inputs = True
-            self.discount_input.setValue(float(percent))
-            self._syncing_price_inputs = False
-
-    def _discount_percent_changed(self, value: float):
-        if self._syncing_price_inputs:
-            return
-        self.pricing_mode = "PERCENT"
-        self._update_special_price()
+        return product.selling_price if product is not None else 0
 
     def _load_rule(self, *_args):
         product = self._selected_product()
         if product is None:
             self.delete_button.setEnabled(False)
             self.save_button.setEnabled(False)
-            self._update_special_price()
+            self.regular_price_label.setText("-")
             return
         self.save_button.setEnabled(True)
+        self.regular_price_label.setText(rupiah(product.selling_price))
         try:
-            rule = self.service.rule_for_product(product.id)
+            rules = self.service.rules_for_product(product.id)
         except SQLAlchemyError as exc:
             QMessageBox.warning(self, "Harga spesial gagal dimuat", str(exc))
             return
-        self.delete_button.setEnabled(rule is not None)
-        self.regular_price_label.setText(rupiah(product.selling_price))
-        self._syncing_price_inputs = True
-        if rule is not None:
-            self.quantity_threshold_input.setValue(rule.quantity_threshold)
-            self.pricing_mode = rule.pricing_mode
-            if rule.pricing_mode == "PRICE":
-                self.special_price_input.setValue(rule.special_price)
-                if product.selling_price > 0:
-                    percent = self.service.discount_percent_for_price(
-                        product.selling_price,
-                        rule.special_price,
-                    )
-                    self.discount_input.setValue(float(percent))
-            else:
-                self.discount_input.setValue(float(rule.discount_percent))
-                self.special_price_input.setValue(
-                    self.service.special_price(
-                        product.selling_price,
-                        rule.discount_percent,
-                    )
-                )
-        else:
-            self.quantity_threshold_input.setValue(1)
-            self.discount_input.setValue(1)
-            self.pricing_mode = "PERCENT"
-            self.special_price_input.setValue(
-                self.service.special_price(
-                    product.selling_price,
-                    Decimal("1"),
-                )
+        self.delete_button.setEnabled(bool(rules))
+        for row, rule in zip(self.tier_rows, rules):
+            row.active_checkbox.setChecked(True)
+            row.load_tier(
+                rule.quantity_threshold,
+                rule.discount_percent,
+                rule.special_price,
+                rule.pricing_mode,
             )
-        self._syncing_price_inputs = False
+        for row, (_label, default_qty, active, default_disc) in zip(
+            self.tier_rows[len(rules):],
+            BULK_TIER_DEFAULTS[len(rules):],
+        ):
+            row.active_checkbox.setChecked(active if not rules else False)
+            row.load_default(default_qty, default_disc)
 
     def _refresh_rules(self):
         try:
@@ -574,29 +641,51 @@ class BulkPriceDialog(QDialog):
         if index >= 0:
             self.product_input.setCurrentIndex(index)
 
+    def _active_tiers(self) -> list[dict]:
+        tiers = [row.tier_data() for row in self.tier_rows if row.active_checkbox.isChecked()]
+        tiers.sort(key=lambda tier: tier["quantity_threshold"])
+        return tiers
+
     def _save_rule(self):
         product = self._selected_product()
         if product is None:
             return
+        tiers = self._active_tiers()
+        if not tiers:
+            QMessageBox.warning(
+                self,
+                "Tingkat belum dipilih",
+                "Aktifkan minimal satu tingkat harga spesial partai.",
+            )
+            return
+        thresholds = [tier["quantity_threshold"] for tier in tiers]
+        if len(set(thresholds)) != len(thresholds):
+            QMessageBox.warning(
+                self,
+                "Qty ambang kembar",
+                "Setiap tingkat harus berbeda qty ambangnya "
+                "(contoh 2, 3, dan 5).",
+            )
+            return
         try:
-            self.service.save_rule(
+            self.service.save_rules(
                 actor=self.actor,
                 product_id=product.id,
-                quantity_threshold=self.quantity_threshold_input.value(),
-                discount_percent=Decimal(str(self.discount_input.value())),
-                special_price=int(self.special_price_input.value()),
-                pricing_mode=self.pricing_mode,
+                tiers=tiers,
             )
         except (AuthorizationError, ValidationError, SQLAlchemyError) as exc:
             QMessageBox.warning(self, "Harga spesial gagal disimpan", str(exc))
             return
         self._refresh_rules()
         self.delete_button.setEnabled(True)
+        summary = ", ".join(
+            f"≥{tier['quantity_threshold']} → {rupiah(tier['special_price'])}"
+            for tier in tiers
+        )
         QMessageBox.information(
             self,
             "Harga spesial tersimpan",
-            f"Harga {product.name} berlaku untuk qty minimal "
-            f"{self.quantity_threshold_input.value()}.",
+            f"Harga {product.name} berjenjang: {summary}.",
         )
 
     def _delete_rule(self):
@@ -611,10 +700,11 @@ class BulkPriceDialog(QDialog):
         if deleted:
             self._refresh_rules()
             self.delete_button.setEnabled(False)
+            self._load_rule()
             QMessageBox.information(
                 self,
                 "Harga spesial dihapus",
-                f"Aturan harga spesial {product.name} sudah dihapus.",
+                f"Semua tingkat harga spesial {product.name} sudah dihapus.",
             )
 
 
@@ -669,13 +759,13 @@ class ProductFormDialog(QDialog):
         suppliers,
         product: Product | None = None,
         bulk_pricing_service: BulkPricingService | None = None,
-        bulk_rule=None,
+        bulk_rules=None,
         parent=None,
     ):
         super().__init__(parent)
         self.product = product
         self.bulk_pricing_service = bulk_pricing_service
-        self.bulk_rule = bulk_rule
+        self.bulk_rules = list(bulk_rules or [])
         self.setWindowTitle("Ubah Produk" if product else "Tambah Produk")
         self.setMinimumWidth(520)
 
@@ -719,13 +809,20 @@ class ProductFormDialog(QDialog):
         form.addRow("Harga jual (Rp) *", self.selling_price)
         form.addRow("Stok awal", self.stock_qty)
         form.addRow("Batas minimum stok", self.min_stock)
-        form.addRow("", self.active_checkbox)
+        form.addRow(self.active_checkbox)
         layout.addLayout(form)
 
-        bulk_group = QGroupBox("Harga Spesial Partai (opsional)")
+        bulk_group = QGroupBox("Harga Spesial Partai — Maks. 3 Tingkat (opsional)")
         bulk_form = QFormLayout(bulk_group)
+        group_margins = bulk_form.contentsMargins()
+        bulk_form.setContentsMargins(
+            0,
+            group_margins.top(),
+            group_margins.right(),
+            group_margins.bottom(),
+        )
         self.bulk_enabled_input = QCheckBox("Aktifkan harga spesial partai")
-        bulk_form.addRow("", self.bulk_enabled_input)
+        bulk_form.addRow(self.bulk_enabled_input)
         self.bulk_flow_label = QLabel()
         self.bulk_flow_label.setWordWrap(True)
         self.bulk_flow_label.setStyleSheet(
@@ -733,42 +830,45 @@ class ProductFormDialog(QDialog):
             "border-radius: 6px;"
         )
         bulk_form.addRow("Alur harga", self.bulk_flow_label)
-        self.bulk_threshold_input = QSpinBox()
-        self.bulk_threshold_input.setRange(1, 2_000_000_000)
-        self.bulk_threshold_input.setValue(1)
-        bulk_form.addRow("Berlaku mulai qty (≥)", self.bulk_threshold_input)
         self.bulk_regular_price_label = QLabel()
         self.bulk_regular_price_label.setStyleSheet(
             "font-weight: 600; color: #e4e4e7;"
         )
         bulk_form.addRow("Harga satuan normal", self.bulk_regular_price_label)
-        self.bulk_pricing_mode = "PERCENT"
-        self.bulk_special_price_input = self._money_input()
-        bulk_form.addRow(
-            "Harga spesial per satuan",
-            self.bulk_special_price_input,
-        )
-        self.bulk_discount_input = QDoubleSpinBox()
-        self.bulk_discount_input.setDecimals(2)
-        self.bulk_discount_input.setRange(0.01, 100)
-        self.bulk_discount_input.setSingleStep(1)
-        self.bulk_discount_input.setSuffix("%")
-        bulk_form.addRow("Potongan harga", self.bulk_discount_input)
+        self.bulk_tier_rows: list[BulkTierRow] = []
+        for label, default_qty, active, default_disc in BULK_TIER_DEFAULTS:
+            row = BulkTierRow(
+                label,
+                lambda: int(self.selling_price.value()),
+                self.bulk_pricing_service,
+            )
+            row.active_checkbox.setChecked(active)
+            row.load_default(default_qty, default_disc)
+            row.threshold_input.valueChanged.connect(
+                self._update_bulk_price_reference
+            )
+            row.active_checkbox.toggled.connect(
+                self._update_bulk_price_reference
+            )
+            self.bulk_tier_rows.append(row)
+            bulk_form.addRow(row)
         bulk_help = QLabel(
-            "Isi harga spesial atau persentase potongan. Nilai lainnya "
-            "dihitung otomatis dari harga jual normal."
+            "Saat qty mencapai ambang suatu tingkat, harga tingkat "
+            "tertinggi yang tercapai yang dipakai. Harga tiap tingkat "
+            "harus lebih rendah dari harga satuan normal; isi harga "
+            "spesial atau persentase potongan, nilai lain dihitung otomatis."
         )
         bulk_help.setWordWrap(True)
         bulk_help.setStyleSheet("color: #a1a1aa;")
         bulk_form.addRow("", bulk_help)
+        self.bulk_detail_widgets: list[QWidget] = [
+            self.bulk_flow_label,
+            self.bulk_regular_price_label,
+            *self.bulk_tier_rows,
+            bulk_help,
+        ]
         self.bulk_enabled_input.toggled.connect(
             self._set_bulk_inputs_enabled
-        )
-        self.bulk_special_price_input.valueChanged.connect(
-            self._bulk_price_changed
-        )
-        self.bulk_discount_input.valueChanged.connect(
-            self._bulk_discount_changed
         )
         self.selling_price.valueChanged.connect(self._update_bulk_price_reference)
         layout.addWidget(bulk_group)
@@ -806,7 +906,7 @@ class ProductFormDialog(QDialog):
             self.stock_qty.setEnabled(False)
             self.min_stock.setValue(product.min_stock)
             self.active_checkbox.setChecked(product.is_active)
-        self._load_bulk_rule()
+        self._load_bulk_rules()
 
     def _validate_and_accept(self):
         if not self.sku_input.text().strip():
@@ -827,7 +927,6 @@ class ProductFormDialog(QDialog):
             return
         if self.bulk_enabled_input.isChecked():
             regular_price = int(self.selling_price.value())
-            special_price = int(self.bulk_special_price_input.value())
             if regular_price <= 0:
                 QMessageBox.warning(
                     self,
@@ -837,111 +936,98 @@ class ProductFormDialog(QDialog):
                 )
                 self.selling_price.setFocus()
                 return
-            if special_price >= regular_price:
+            active_rows = [
+                row
+                for row in self.bulk_tier_rows
+                if row.active_checkbox.isChecked()
+            ]
+            if not active_rows:
                 QMessageBox.warning(
                     self,
-                    "Harga spesial belum valid",
-                    "Harga spesial harus lebih rendah dari harga jual normal.",
+                    "Tingkat belum dipilih",
+                    "Aktifkan minimal satu tingkat harga spesial partai.",
                 )
-                self.bulk_special_price_input.setFocus()
+                self.bulk_tier_rows[0].active_checkbox.setFocus()
                 return
+            thresholds = [
+                row.threshold_input.value() for row in active_rows
+            ]
+            if len(set(thresholds)) != len(thresholds):
+                QMessageBox.warning(
+                    self,
+                    "Qty ambang kembar",
+                    "Setiap tingkat harus berbeda qty ambangnya "
+                    "(contoh 2, 3, dan 5).",
+                )
+                return
+            for row in active_rows:
+                if row.price_input.value() >= regular_price:
+                    QMessageBox.warning(
+                        self,
+                        "Harga spesial belum valid",
+                        f"Harga spesial {row.active_checkbox.text()} harus "
+                        "lebih rendah dari harga jual normal.",
+                    )
+                    row.price_input.setFocus()
+                    return
         self.accept()
 
-    def _load_bulk_rule(self):
+    def _load_bulk_rules(self):
         regular_price = int(self.selling_price.value())
-        if self.bulk_rule is not None:
+        if self.bulk_rules:
             self.bulk_enabled_input.setChecked(True)
-            self.bulk_threshold_input.setValue(
-                self.bulk_rule.quantity_threshold
-            )
-            self.bulk_pricing_mode = self.bulk_rule.pricing_mode
-            if self.bulk_pricing_mode == "PRICE":
-                self.bulk_special_price_input.setValue(
-                    self.bulk_rule.special_price
+            for row, rule in zip(self.bulk_tier_rows, self.bulk_rules):
+                row.active_checkbox.setChecked(True)
+                row.load_tier(
+                    rule.quantity_threshold,
+                    rule.discount_percent,
+                    rule.special_price,
+                    rule.pricing_mode,
                 )
-                percent = (
-                    self.bulk_pricing_service.discount_percent_for_price(
-                        regular_price,
-                        self.bulk_rule.special_price,
-                    )
-                    if regular_price > 0
-                    else Decimal("1")
-                )
-                self.bulk_discount_input.setValue(float(percent))
-            else:
-                self.bulk_discount_input.setValue(
-                    float(self.bulk_rule.discount_percent)
-                )
-                self.bulk_special_price_input.setValue(
-                    self.bulk_pricing_service.special_price(
-                        regular_price,
-                        self.bulk_rule.discount_percent,
-                    )
-                )
-        else:
-            self.bulk_discount_input.setValue(1)
-            self._update_bulk_price_reference()
+            for row, (_label, default_qty, _active, default_disc) in zip(
+                self.bulk_tier_rows[len(self.bulk_rules):],
+                BULK_TIER_DEFAULTS[len(self.bulk_rules):],
+            ):
+                row.active_checkbox.setChecked(False)
+                row.load_default(default_qty, default_disc)
         self._set_bulk_inputs_enabled(self.bulk_enabled_input.isChecked())
 
     def _set_bulk_inputs_enabled(self, enabled: bool):
-        for widget in (
-            self.bulk_threshold_input,
-            self.bulk_special_price_input,
-            self.bulk_discount_input,
-        ):
-            widget.setEnabled(enabled)
+        for widget in self.bulk_detail_widgets:
+            widget.setVisible(enabled)
+        for row in self.bulk_tier_rows:
+            row.active_checkbox.setEnabled(enabled)
+            row.set_inputs_enabled(enabled)
         self._update_bulk_price_reference()
 
     def _update_bulk_price_reference(self, *_args):
         regular_price = int(self.selling_price.value())
         self.bulk_regular_price_label.setText(rupiah(regular_price))
-        self.bulk_flow_label.setText(
-            f"Jika qty pembelian ≥ {self.bulk_threshold_input.value()}, "
-            "gunakan harga spesial per satuan; jika kurang, gunakan harga "
-            f"normal {rupiah(regular_price)}."
-        )
-        if (
-            not self.bulk_enabled_input.isChecked()
-            or self._bulk_syncing()
-            or self.bulk_pricing_mode != "PERCENT"
+        parts = [f"qty 1 = {rupiah(regular_price)} (normal)"]
+        for row in sorted(
+            self.bulk_tier_rows,
+            key=lambda tier_row: tier_row.threshold_input.value(),
         ):
+            if not row.active_checkbox.isChecked():
+                continue
+            parts.append(
+                f"≥{row.threshold_input.value()} = "
+                f"{rupiah(int(row.price_input.value()))}"
+            )
+        self.bulk_flow_label.setText("; ".join(parts) + ".")
+        if not self.bulk_enabled_input.isChecked():
             return
-        self.bulk_special_price_input.setValue(
-            self._special_price_from_percent(regular_price)
-        )
+        for row in self.bulk_tier_rows:
+            row.recompute_price()
 
-    def _bulk_syncing(self) -> bool:
-        return getattr(self, "_syncing_bulk_fields", False)
-
-    def _special_price_from_percent(self, regular_price: int) -> int:
-        if self.bulk_pricing_service is None:
-            return 0
-        return self.bulk_pricing_service.special_price(
-            regular_price,
-            Decimal(str(self.bulk_discount_input.value())),
-        )
-
-    def _bulk_price_changed(self, value: float):
-        if self._bulk_syncing() or not self.bulk_enabled_input.isChecked():
-            return
-        regular_price = int(self.selling_price.value())
-        if regular_price <= 0:
-            return
-        self.bulk_pricing_mode = "PRICE"
-        percent = self.bulk_pricing_service.discount_percent_for_price(
-            regular_price,
-            int(value),
-        )
-        if percent > 0:
-            self._syncing_bulk_fields = True
-            self.bulk_discount_input.setValue(float(percent))
-            self._syncing_bulk_fields = False
-
-    def _bulk_discount_changed(self, value: float):
-        if self._bulk_syncing() or not self.bulk_enabled_input.isChecked():
-            return
-        self.bulk_pricing_mode = "PERCENT"
-        self._update_bulk_price_reference()
+    def _active_tier_data(self) -> list[dict]:
+        tiers = [
+            row.tier_data()
+            for row in self.bulk_tier_rows
+            if row.active_checkbox.isChecked()
+        ]
+        tiers.sort(key=lambda tier: tier["quantity_threshold"])
+        return tiers
 
     @staticmethod
     def _new_line_edit(placeholder: str) -> QLineEdit:
@@ -979,12 +1065,7 @@ class ProductFormDialog(QDialog):
             "min_stock": self.min_stock.value(),
             "is_active": self.active_checkbox.isChecked(),
             "bulk_pricing_enabled": self.bulk_enabled_input.isChecked(),
-            "bulk_quantity_threshold": self.bulk_threshold_input.value(),
-            "bulk_discount_percent": Decimal(
-                str(self.bulk_discount_input.value())
-            ),
-            "bulk_special_price": int(self.bulk_special_price_input.value()),
-            "bulk_pricing_mode": self.bulk_pricing_mode,
+            "bulk_tiers": self._active_tier_data(),
         }
 
 
@@ -1403,10 +1484,10 @@ class MasterDataView(QWidget):
                 self.service.list_suppliers(),
                 product=product,
                 bulk_pricing_service=self.bulk_pricing_service,
-                bulk_rule=(
-                    self.bulk_pricing_service.rule_for_product(product.id)
+                bulk_rules=(
+                    self.bulk_pricing_service.rules_for_product(product.id)
                     if product is not None
-                    else None
+                    else []
                 ),
                 parent=self,
             )
@@ -1420,10 +1501,7 @@ class MasterDataView(QWidget):
             key: values.pop(key)
             for key in (
                 "bulk_pricing_enabled",
-                "bulk_quantity_threshold",
-                "bulk_discount_percent",
-                "bulk_special_price",
-                "bulk_pricing_mode",
+                "bulk_tiers",
             )
         }
         if values["category_id"] is None:
@@ -1439,13 +1517,10 @@ class MasterDataView(QWidget):
             return
         try:
             if bulk_pricing["bulk_pricing_enabled"]:
-                self.bulk_pricing_service.save_rule(
+                self.bulk_pricing_service.save_rules(
                     actor=self.actor,
                     product_id=product.id,
-                    quantity_threshold=bulk_pricing["bulk_quantity_threshold"],
-                    discount_percent=bulk_pricing["bulk_discount_percent"],
-                    special_price=bulk_pricing["bulk_special_price"],
-                    pricing_mode=bulk_pricing["bulk_pricing_mode"],
+                    tiers=bulk_pricing["bulk_tiers"],
                 )
             else:
                 self.bulk_pricing_service.delete_rule(

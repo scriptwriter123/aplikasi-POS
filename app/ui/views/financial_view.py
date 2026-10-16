@@ -208,6 +208,7 @@ class FinancialView(QWidget):
         back.clicked.connect(self.back_requested.emit)
         title = QLabel("Laporan Keuangan")
         title.setStyleSheet("font-size: 25px; font-weight: 700; color: #ffffff;")
+        self.heading_label = title
         header.addWidget(back)
         header.addWidget(title)
         header.addStretch(1)

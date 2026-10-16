@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -43,6 +44,8 @@ class LicenseView(QWidget):
         super().__init__(parent)
         self.setObjectName("licenseRoot")
         self.license_service = license_service
+        self._show_back = show_back
+        self._closing = False
         self._worker: OnlineActivationWorker | None = None
         # Kredensial online terakhir (untuk auto-login ke dashboard).
         # password disimpan hanya di memori selama proses aktivasi.
@@ -97,23 +100,77 @@ class LicenseView(QWidget):
         form.addRow("ID instalasi", self.installation_id_input)
         root.addLayout(form)
 
-        actions = QHBoxLayout()
+        # "Simpan Permintaan Lisensi" berdiri sendiri di tengah.
+        request_row = QHBoxLayout()
+        request_row.addStretch(1)
         request_button = QPushButton("Simpan Permintaan Lisensi")
         request_button.clicked.connect(self._save_request)
-        import_button = QPushButton("Pilih File Lisensi")
+        request_row.addWidget(request_button)
+        request_row.addStretch(1)
+        root.addLayout(request_row)
+
+        # Tab aktivasi: offline (impor file .poslic) & online (billing).
+        tabs = QTabWidget()
+        tabs.setStyleSheet(
+            "QTabWidget::pane { border: 1px solid #3f3f46; "
+            "border-radius: 8px; top: -1px; }"
+            "QTabBar::tab { background: transparent; color: #a1a1aa; "
+            "padding: 8px 16px; font-weight: 600; "
+            "border-bottom: 2px solid transparent; }"
+            f"QTabBar::tab:selected {{ color: {PALETTE['accent']}; "
+            f"border-bottom: 2px solid {PALETTE['accent']}; }}"
+        )
+        offline_page = QWidget()
+        offline_layout = QVBoxLayout(offline_page)
+        offline_layout.setContentsMargins(12, 14, 12, 12)
+        offline_layout.setSpacing(10)
+        offline_hint = QLabel(
+            "Aktivasi offline: pilih file lisensi (.poslic) yang sudah Anda "
+            "terima dari penerbit lisensi. Setelah terpasang, POS dapat "
+            "digunakan tanpa koneksi internet."
+        )
+        offline_hint.setWordWrap(True)
+        offline_layout.addWidget(offline_hint)
+        import_button = QPushButton("Pilih Lisensi Baru")
         import_button.setStyleSheet(
             f"QPushButton {{ background: {PALETTE['accent']}; color: white; border: none; "
             f"border-radius: 8px; padding: 10px 16px; font-weight: 600; }}"
             f"QPushButton:hover {{ background: {PALETTE['accent_hover']}; }}"
         )
         import_button.clicked.connect(self._import_license)
-        actions.addWidget(request_button)
-        actions.addWidget(import_button)
-        root.addLayout(actions)
+        import_button_row = QHBoxLayout()
+        import_button_row.addStretch(1)
+        import_button_row.addWidget(import_button)
+        import_button_row.addStretch(1)
+        offline_layout.addLayout(import_button_row)
+        offline_layout.addStretch(1)
+        tabs.addTab(offline_page, "Aktivasi Offline")
 
         self._online_widgets: list[QWidget] = []
         if settings.billing_server_url:
-            self._build_online_section(root)
+            self._build_online_section(tabs)
+        root.addWidget(tabs)
+
+        # "Saya Sudah Bayar — Cek & Aktifkan" tetap di bawah tab,
+        # tidak ikut halaman aktivasi online.
+        if settings.billing_server_url:
+            self.check_paid_button = QPushButton(
+                "Saya Sudah Bayar \u2014 Cek & Aktifkan"
+            )
+            self.check_paid_button.setStyleSheet(
+                "QPushButton { background: #15803d; color: white; border: none; "
+                "border-radius: 8px; padding: 10px 16px; font-weight: 600; }"
+                "QPushButton:hover { background: #16a34a; }"
+                "QPushButton:disabled { background: #3f3f46; color: #a1a1aa; }"
+            )
+            self.check_paid_button.setToolTip(
+                "Sudah membayar langganan lewat website? Klik untuk memeriksa "
+                "status pembayaran ke webserver sekarang dan mengaktifkan POS "
+                "bila lisensi sudah terbit. Data customer tercatat di dashboard "
+                "admin webserver."
+            )
+            self.check_paid_button.clicked.connect(self._check_paid_now)
+            root.addWidget(self.check_paid_button)
 
         if allow_read_only:
             read_only_button = QPushButton("Lanjutkan dalam Mode Baca-Saja")
@@ -164,22 +221,20 @@ class LicenseView(QWidget):
         """Email akun webserver pemilik device_token (tanpa password)."""
         return self.license_service.data_dir / "billing-device-email.txt"
 
-    def _build_online_section(self, root: QVBoxLayout) -> None:
-        heading = QLabel("Aktivasi Online")
-        heading.setStyleSheet(
-            f"font-size: 16px; font-weight: 700; color: {PALETTE['text']};"
-        )
-        root.addWidget(heading)
-        self._online_widgets.append(heading)
+    def _build_online_section(self, tabs: QTabWidget) -> None:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(12, 14, 12, 12)
+        layout.setSpacing(10)
 
         hint = QLabel(
-            "Masuk atau buat akun webserver. Permintaan lisensi terkirim "
+            "Masuk atau buat akun di Server aplikasi. Permintaan lisensi terkirim "
             "otomatis dan POS akan mengaktifkan diri setelah pembayaran "
             "terdeteksi. Sudah bayar lewat website? Klik "
             "\u201cSaya Sudah Bayar \u2014 Cek & Aktifkan\u201d di bawah."
         )
         hint.setWordWrap(True)
-        root.addWidget(hint)
+        layout.addWidget(hint)
         self._online_widgets.append(hint)
 
         self._register_mode = False
@@ -210,7 +265,7 @@ class LicenseView(QWidget):
         except Exception:
             self._confirm_label = None
         self._set_confirm_row_visible(False)
-        root.addLayout(form)
+        layout.addLayout(form)
         self._online_widgets.extend(
             [self.email_input, self.password_input, self.confirm_input]
         )
@@ -219,11 +274,12 @@ class LicenseView(QWidget):
         self.mode_toggle.setFlat(True)
         self.mode_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
         self.mode_toggle.setStyleSheet(
-            f"QPushButton {{ color: {PALETTE['accent']}; border: none; "
-            "text-align: left; padding: 2px 0; font-size: 13px; }}"
+            "QPushButton { color: white; border: none; "
+            "text-align: left; padding: 2px 0; font-size: 13px; }"
+            "QPushButton:hover { color: #cfe9ff; }"
         )
         self.mode_toggle.clicked.connect(self._toggle_mode)
-        root.addWidget(self.mode_toggle)
+        layout.addWidget(self.mode_toggle)
         self._online_widgets.append(self.mode_toggle)
 
         self.online_status = QLabel("")
@@ -231,7 +287,7 @@ class LicenseView(QWidget):
         self.online_status.setStyleSheet(
             f"font-size: 13px; color: {PALETTE['accent']};"
         )
-        root.addWidget(self.online_status)
+        layout.addWidget(self.online_status)
         self._online_widgets.append(self.online_status)
 
         self.online_button = QPushButton("Masuk & Aktivasi")
@@ -239,28 +295,14 @@ class LicenseView(QWidget):
             f"QPushButton {{ background: {PALETTE['accent']}; color: white; border: none; "
             f"border-radius: 8px; padding: 10px 16px; font-weight: 600; }}"
             f"QPushButton:hover {{ background: {PALETTE['accent_hover']}; }}"
-            f"QPushButton:disabled {{ background: {PALETTE['accent_hover']}; }}"
+            f"QPushButton:disabled {{ background: {PALETTE['accent_hover']}; color: white; }}"
         )
         self.online_button.clicked.connect(self._start_online_activation)
-        root.addWidget(self.online_button)
+        layout.addWidget(self.online_button)
         self._online_widgets.append(self.online_button)
+        layout.addStretch(1)
 
-        self.check_paid_button = QPushButton("Saya Sudah Bayar \u2014 Cek & Aktifkan")
-        self.check_paid_button.setStyleSheet(
-            "QPushButton { background: #15803d; color: white; border: none; "
-            "border-radius: 8px; padding: 10px 16px; font-weight: 600; }"
-            "QPushButton:hover { background: #16a34a; }"
-            "QPushButton:disabled { background: #3f3f46; color: #a1a1aa; }"
-        )
-        self.check_paid_button.setToolTip(
-            "Sudah membayar langganan lewat website? Klik untuk memeriksa "
-            "status pembayaran ke webserver sekarang dan mengaktifkan POS "
-            "bila lisensi sudah terbit. Data customer tercatat di dashboard "
-            "admin webserver."
-        )
-        self.check_paid_button.clicked.connect(self._check_paid_now)
-        root.addWidget(self.check_paid_button)
-        self._online_widgets.append(self.check_paid_button)
+        tabs.addTab(page, "Aktivasi Online")
 
     def _set_confirm_row_visible(self, visible: bool) -> None:
         """Tampilkan/sembunyikan baris 'Ulangi Password' seutuhnya.
@@ -490,6 +532,12 @@ class LicenseView(QWidget):
         if self._worker is not None and self._worker.isRunning():
             self._worker.stop()
             self._worker.wait(3000)
+        # Tutup jendela (X) harus berperilaku sama dengan tombol
+        # "Kembali ke Aplikasi" saat dibuka dari dashboard owner,
+        # supaya tidak keluar dari aplikasi.
+        if self._show_back and not self._closing:
+            self._closing = True
+            self.back_requested.emit()
         super().closeEvent(event)
 
     def _save_request(self) -> None:

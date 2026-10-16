@@ -33,14 +33,12 @@ from app.services.user_management_service import UserManagementService
 from app.ui.main_window import MainWindow
 from app.ui.views.cashier_view import CashierView
 from app.ui.views.dashboard_view import DashboardView
-from app.ui.views.financial_view import FinancialView
+from app.ui.views.report_center_view import ReportCenterView
 from app.ui.views.license_view import LicenseView
 from app.ui.views.login_view import LoginView
 from app.ui.views.master_data_view import MasterDataView
 from app.ui.views.purchase_view import PurchaseView
-from app.ui.views.report_view import ReportView
 from app.ui.views.store_settings_view import StoreSettingsView
-from app.ui.views.supplier_view import SupplierView
 from app.ui.views.user_management_view import UserManagementView
 
 
@@ -169,13 +167,13 @@ def test_full_owner_navigation_and_all_views(qt_application: QApplication, full_
 
     # 2. Dashboard -> Sales Report View
     window.show_sales_report()
-    assert isinstance(window.stack.currentWidget(), ReportView)
+    assert isinstance(window.stack.currentWidget(), ReportCenterView)
     assert window.sales_report_view.report_type == "sales"
     window.sales_report_view.refresh_report()
 
     # 3. Dashboard -> Financial Report View
     window.show_financial_report()
-    assert isinstance(window.stack.currentWidget(), FinancialView)
+    assert isinstance(window.stack.currentWidget(), ReportCenterView)
     assert window.financial_view.service.is_initialized()
 
     # 4. Dashboard -> Master Data View
@@ -189,14 +187,19 @@ def test_full_owner_navigation_and_all_views(qt_application: QApplication, full_
     assert isinstance(window.stack.currentWidget(), StoreSettingsView)
     assert window.store_settings_view.name_input.text() == "Toko Super Mart"
 
-    # 6. Dashboard -> Suppliers View
+    # 6. Dashboard -> Suppliers (tab Kelola Supplier dalam jendela Belanja)
     window.show_suppliers()
-    assert isinstance(window.stack.currentWidget(), SupplierView)
+    assert isinstance(window.stack.currentWidget(), PurchaseView)
+    assert (
+        window.stack.currentWidget().tabs.currentWidget()
+        is window.supplier_view
+    )
     assert window.supplier_view.supplier_table.rowCount() >= 1
 
-    # 7. Dashboard -> Purchases View
+    # 7. Dashboard -> Purchases (tab Belanja)
     window.show_purchases()
     assert isinstance(window.stack.currentWidget(), PurchaseView)
+    assert window.purchase_view.tabs.currentIndex() == 0
     assert window.purchase_view.product_input.count() >= 2
 
     # Return to Dashboard

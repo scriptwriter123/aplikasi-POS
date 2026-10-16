@@ -64,6 +64,7 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     id: Mapped[int] = mapped_column(primary_key=True)
     username: Mapped[str] = mapped_column(String(80), unique=True, nullable=False, index=True)
     full_name: Mapped[str] = mapped_column(String(150), nullable=False)
+    whatsapp: Mapped[str | None] = mapped_column(String(30))
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role_id: Mapped[int] = mapped_column(ForeignKey("roles.id"), nullable=False)
     role: Mapped[Role] = relationship(back_populates="users")
@@ -133,10 +134,50 @@ class Product(Base, TimestampMixin, SoftDeleteMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 
+class LoginHistory(Base):
+    """Riwayat login pengguna — sumber data absensi karyawan."""
+
+    __tablename__ = "login_history"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"), nullable=False, index=True
+    )
+    login_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    user: Mapped[User] = relationship()
+
+
+class InventarisToko(Base, TimestampMixin, SoftDeleteMixin):
+    """Inventaris toko: alat & peralatan yang tidak dijual."""
+
+    __tablename__ = "inventaris_toko"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    kode_inventaris: Mapped[str] = mapped_column(
+        String(50), unique=True, nullable=False, index=True
+    )
+    nama_barang: Mapped[str] = mapped_column(String(200), nullable=False)
+    jumlah: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    satuan: Mapped[str | None] = mapped_column(String(50))
+    tanggal_perolehan: Mapped[date | None] = mapped_column(Date)
+    harga_perolehan: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False
+    )
+    lokasi: Mapped[str | None] = mapped_column(String(100))
+    kondisi: Mapped[str] = mapped_column(
+        String(20), default="Baik", nullable=False
+    )
+    keterangan: Mapped[str | None] = mapped_column(Text)
+
+
 class BulkPriceRule(Base, TimestampMixin):
     __tablename__ = "bulk_price_rules"
     __table_args__ = (
-        UniqueConstraint("product_id"),
+        UniqueConstraint(
+            "product_id",
+            "quantity_threshold",
+            name="uq_bulk_price_rules_product_threshold",
+        ),
         CheckConstraint(
             "quantity_threshold >= 1",
             name="ck_bulk_price_rules_quantity_threshold_positive",

@@ -51,6 +51,19 @@ class MasterDataService:
     def create_category(self, actor: User, name: str) -> Category:
         return self.create_categories(actor, [name])[0]
 
+    def ensure_default_category(self, actor: User) -> Category:
+        """Kembalikan kategori 'Umum'; buat bila belum ada."""
+        self._require_owner(actor)
+        existing = self.session.scalar(
+            select(Category).where(
+                func.lower(Category.name) == "umum",
+                Category.deleted_at.is_(None),
+            )
+        )
+        if existing is not None:
+            return existing
+        return self.create_categories(actor, ["Umum"])[0]
+
     def create_categories(self, actor: User, names: list[str]) -> list[Category]:
         self._require_owner(actor)
         normalized_names = [name.strip() for name in names if name.strip()]
@@ -97,6 +110,27 @@ class MasterDataService:
         for category in categories:
             self.session.refresh(category)
         return categories
+
+    def ensure_default_unit(self, actor: User) -> Unit:
+        """Kembalikan satuan aktif pertama; buat 'Pcs' bila belum ada."""
+        self._require_owner(actor)
+        unit = self.session.scalar(
+            select(Unit)
+            .where(Unit.deleted_at.is_(None))
+            .order_by(Unit.id)
+            .limit(1)
+        )
+        if unit is not None:
+            return unit
+        unit = Unit(name="Pcs", symbol="pcs")
+        self.session.add(unit)
+        try:
+            self.session.flush()
+            self.session.refresh(unit)
+        except IntegrityError as exc:
+            self.session.rollback()
+            raise ValidationError("Satuan sudah digunakan.") from exc
+        return unit
 
     def save_product(
         self,

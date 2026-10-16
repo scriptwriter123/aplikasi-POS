@@ -15,14 +15,15 @@ from app.models import Store
 from app.services.store_settings_service import StoreSettingsService
 from app.services.payment_settings_service import PaymentSettingsService
 from app.services.user_management_service import UserManagementService
+from app.ui.views.attendance_view import AttendanceView
 from app.ui.views.cashier_view import CashierView
 from app.ui.views.dashboard_view import DashboardView
 from app.ui.views.financial_view import FinancialView
 from app.ui.views.master_data_view import MasterDataView
 from app.ui.views.purchase_view import PurchaseView
+from app.ui.views.report_center_view import ReportCenterView
 from app.ui.views.report_view import ReportView
 from app.ui.views.store_settings_view import StoreSettingsView
-from app.ui.views.supplier_view import SupplierView
 from app.ui.views.user_management_view import UserManagementView
 from app.ui.widgets import create_copyright_label
 
@@ -70,7 +71,9 @@ class MainWindow(QMainWindow):
         self.stack.currentChanged.connect(self._update_window_branding)
 
         role = user.role.name.upper()
-        if role in {"ADMIN", "SUPERVISOR", "CASHIER"}:
+        if role != "OWNER":
+            # Semua bagian/tugas selain OWNER (termasuk input bebas owner)
+            # memakai tampilan operasional kasir.
             self.dashboard = None
             cashier_view = CashierView(
                 user,
@@ -81,8 +84,6 @@ class MainWindow(QMainWindow):
             self.stack.addWidget(cashier_view)
             self._update_window_branding(0)
             return
-        if role != "OWNER":
-            raise ValueError(f"Role pengguna tidak dikenali: {role}")
 
         self.dashboard = DashboardView(user, store=self.store)
         self.dashboard.logout_requested.connect(self.logout_requested.emit)
@@ -104,14 +105,25 @@ class MainWindow(QMainWindow):
                 "sales",
             )
             self.sales_report_view.back_requested.connect(self.show_dashboard)
-            self.stack.addWidget(self.sales_report_view)
             self.financial_view = FinancialView(
                 user,
                 self.user_management.session,
                 read_only=self.read_only,
             )
             self.financial_view.back_requested.connect(self.show_dashboard)
-            self.stack.addWidget(self.financial_view)
+            self.attendance_view = AttendanceView(
+                user,
+                self.user_management.session,
+            )
+            # Jendela "Laporan" gabungan: Penjualan, Keuangan, Absensi
+            # Karyawan (tab); ketiganya memakai instance yang sama.
+            self.report_center = ReportCenterView(
+                sales_view=self.sales_report_view,
+                financial_view=self.financial_view,
+                attendance_view=self.attendance_view,
+            )
+            self.report_center.back_requested.connect(self.show_dashboard)
+            self.stack.addWidget(self.report_center)
             self.master_data_view = MasterDataView(
                 user,
                 self.user_management.session,
@@ -128,12 +140,6 @@ class MainWindow(QMainWindow):
                 self._store_settings_saved
             )
             self.stack.addWidget(self.store_settings_view)
-            self.supplier_view = SupplierView(
-                user,
-                self.user_management.session,
-            )
-            self.supplier_view.back_requested.connect(self.show_dashboard)
-            self.stack.addWidget(self.supplier_view)
             self.purchase_view = PurchaseView(
                 user,
                 self.user_management.session,
@@ -141,9 +147,11 @@ class MainWindow(QMainWindow):
             )
             self.purchase_view.back_requested.connect(self.show_dashboard)
             self.stack.addWidget(self.purchase_view)
+            self.supplier_view = self.purchase_view.supplier_view
             self.dashboard.sales_report_requested.connect(
                 self.show_sales_report
             )
+            self.dashboard.report_requested.connect(self.show_report_center)
             self.dashboard.activation_requested.connect(
                 self.activation_requested.emit
             )
@@ -158,10 +166,18 @@ class MainWindow(QMainWindow):
             self.supplier_view.purchases_requested.connect(
                 self.show_purchases
             )
-            self.purchase_view.suppliers_requested.connect(self.show_suppliers)
             self._update_window_branding(self.stack.currentIndex())
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        # X saat halaman kartu dashboard terbuka: kembali ke dashboard
+        # owner, jangan keluar/keluar-akun. Di dashboard, X tetap keluar.
+        if (
+            self.dashboard is not None
+            and self.stack.currentWidget() is not self.dashboard
+        ):
+            self.show_dashboard()
+            event.ignore()
+            return
         self.logout_requested.emit()
         event.accept()
 
@@ -211,6 +227,7 @@ class MainWindow(QMainWindow):
         if self.user.role.name.upper() != "OWNER":
             return
         self.user_management_view.refresh_users()
+        self.user_management_view.refresh_inventory()
         self.stack.setCurrentWidget(self.user_management_view)
 
     def show_dashboard(self):
@@ -219,14 +236,18 @@ class MainWindow(QMainWindow):
 
     def show_sales_report(self):
         if self.user.role.name.upper() == "OWNER":
-            self.sales_report_view.refresh_report()
-            self.stack.setCurrentWidget(self.sales_report_view)
+            self.report_center.show_tab("Penjualan")
+            self.stack.setCurrentWidget(self.report_center)
 
     def show_financial_report(self):
         if self.user.role.name.upper() == "OWNER":
-            self.financial_view.refresh_view()
-            self.financial_view.refresh_report()
-            self.stack.setCurrentWidget(self.financial_view)
+            self.report_center.show_tab("Keuangan")
+            self.stack.setCurrentWidget(self.report_center)
+
+    def show_report_center(self):
+        if self.user.role.name.upper() == "OWNER":
+            self.report_center.show_tab("Penjualan")
+            self.stack.setCurrentWidget(self.report_center)
 
     def show_master_data(self):
         if self.user.role.name.upper() == "OWNER":
@@ -240,12 +261,16 @@ class MainWindow(QMainWindow):
 
     def show_suppliers(self):
         if self.user.role.name.upper() == "OWNER":
-            self.supplier_view.refresh_suppliers()
-            self.stack.setCurrentWidget(self.supplier_view)
+            self.stack.setCurrentWidget(self.purchase_view)
+            self.purchase_view.supplier_view.refresh_suppliers()
+            self.purchase_view.tabs.setCurrentWidget(
+                self.purchase_view.supplier_view
+            )
 
     def show_purchases(self):
         if self.user.role.name.upper() == "OWNER":
             self.purchase_view.refresh_data()
+            self.purchase_view.tabs.setCurrentIndex(0)
             self.stack.setCurrentWidget(self.purchase_view)
 
     def _store_settings_saved(self, store: Store):
@@ -260,12 +285,10 @@ class MainWindow(QMainWindow):
         if self.dashboard is not None:
             page_titles = {
                 self.dashboard: "Dashboard",
-                getattr(self, "user_management_view", None): "Manajemen Pengguna",
-                getattr(self, "sales_report_view", None): "Laporan Penjualan",
-                getattr(self, "financial_view", None): "Laporan Keuangan",
+                getattr(self, "user_management_view", None): "Manajemen Toko",
+                getattr(self, "report_center", None): "Laporan",
                 getattr(self, "master_data_view", None): "Master Data",
                 getattr(self, "store_settings_view", None): "Pengaturan Toko",
-                getattr(self, "supplier_view", None): "Data Supplier",
                 getattr(self, "purchase_view", None): "Belanja dan Supplier",
             }
             page_title = page_titles.get(widget, "POS Retail")

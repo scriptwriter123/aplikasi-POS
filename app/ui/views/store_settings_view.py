@@ -1,4 +1,5 @@
 from pathlib import Path
+import sqlite3
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPixmap
@@ -7,18 +8,23 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.core.config import persist_env_value, settings as app_settings
 from app.core.exceptions import AuthorizationError, ValidationError
+from app.models import Category, Product, Unit
 from app.services.store_settings_service import StoreSettingsService
 from app.services.payment_settings_service import PaymentSettingsService
 from app.ui.theme import PALETTE
@@ -77,13 +83,28 @@ class StoreSettingsView(QWidget):
         root.addLayout(header)
 
         description = QLabel(
-            "Identitas ini ditampilkan pada dashboard dan judul jendela aplikasi. "
-            "Logo bersifat opsional dan digunakan sebagai ikon jendela."
+            "Atur identitas toko pada tab Pengaturan Toko dan pilih metode "
+            "pembayaran kasir pada tab Seting Atur Pembayaran Kasir."
         )
         description.setWordWrap(True)
         description.setStyleSheet("color: #a1a1aa;")
         root.addWidget(description)
 
+        tabs = QTabWidget()
+        tabs.setDocumentMode(True)
+        tabs.setStyleSheet(
+            "QTabWidget::pane { border: 1px solid #3f3f4a; border-radius: 8px; }"
+            "QTabBar::tab { background: #1a1a1e; color: #a1a1aa; padding: 8px 24px; "
+            "margin-right: 4px; border-top-left-radius: 8px; "
+            "border-top-right-radius: 8px; }"
+            "QTabBar::tab:selected { background: #12263a; color: #93c5fd; "
+            "font-weight: 600; }"
+        )
+
+        store_tab = QWidget()
+        store_layout = QVBoxLayout(store_tab)
+        store_layout.setContentsMargins(16, 16, 16, 16)
+        store_layout.setSpacing(16)
         form = QFormLayout()
         self.name_input = QLineEdit()
         self.name_input.setMaxLength(150)
@@ -120,13 +141,33 @@ class StoreSettingsView(QWidget):
         logo_row.addLayout(logo_buttons)
         logo_row.addStretch(1)
         form.addRow("Logo (opsional)", logo_row)
-        root.addLayout(form)
 
-        payment_section_label = QLabel("Pengaturan Pembayaran")
-        payment_section_label.setStyleSheet(
-            "font-size: 17px; font-weight: 700; color: #ffffff; margin-top: 8px;"
+        db_folder_row = QHBoxLayout()
+        self.db_folder_input = QLineEdit(app_settings.product_export_dir or "")
+        self.db_folder_input.setReadOnly(True)
+        self.db_folder_input.setPlaceholderText(
+            "Belum ada folder — klik Browse"
         )
-        root.addWidget(payment_section_label)
+        self.db_folder_input.setToolTip(
+            "Folder penyimpanan snapshot tabel produk (pos-produk.db) "
+            "untuk diedit eksternal (CSV/Excel/aplikasi database) lalu "
+            "diimpor kembali lewat menu Import Data."
+        )
+        self.db_folder_browse_button = QPushButton("Browse")
+        self.db_folder_browse_button.clicked.connect(
+            self._browse_database_folder
+        )
+        db_folder_row.addWidget(self.db_folder_input, 1)
+        db_folder_row.addWidget(self.db_folder_browse_button)
+        form.addRow("Pilih Folder Simpan Database", db_folder_row)
+        store_layout.addLayout(form)
+        store_layout.addStretch(1)
+        tabs.addTab(store_tab, "Pengaturan Toko")
+
+        payment_tab = QWidget()
+        payment_layout = QVBoxLayout(payment_tab)
+        payment_layout.setContentsMargins(16, 16, 16, 16)
+        payment_layout.setSpacing(12)
 
         payment_description = QLabel(
             "Pilih metode pembayaran yang tersedia pada jendela kasir. "
@@ -136,7 +177,7 @@ class StoreSettingsView(QWidget):
         )
         payment_description.setWordWrap(True)
         payment_description.setStyleSheet("color: #a1a1aa;")
-        root.addWidget(payment_description)
+        payment_layout.addWidget(payment_description)
 
         self.payment_cash = QCheckBox("Tunai (Offline)")
         self.payment_qris_dana = QCheckBox("QRIS DANA")
@@ -153,32 +194,43 @@ class StoreSettingsView(QWidget):
         self._payment_setting_buttons: list[QPushButton] = []
         self._payment_status_labels: dict[str, QLabel] = {}
 
+        payment_grid = QGridLayout()
+        payment_grid.setColumnStretch(0, 1)
+        payment_grid.setColumnStretch(1, 1)
+        payment_grid.setColumnStretch(2, 0)
+        payment_grid.setHorizontalSpacing(12)
+        payment_grid.setVerticalSpacing(10)
+        payment_row = 0
+
         def add_payment_row(
             checkbox: QCheckBox, with_setting: bool, method_code: str | None = None
         ):
-            row = QHBoxLayout()
-            row.addWidget(checkbox)
-            row.addStretch(1)
+            nonlocal payment_row
+            payment_grid.addWidget(checkbox, payment_row, 0)
             if with_setting:
                 if method_code:
                     status_label = QLabel("")
                     status_label.setStyleSheet("color: #a1a1aa;")
                     self._payment_status_labels[method_code] = status_label
-                    row.addWidget(status_label)
+                    payment_grid.addWidget(status_label, payment_row, 1)
                 setting_button = QPushButton("SETTING")
                 setting_button.setFixedWidth(90)
                 setting_button.clicked.connect(
                     lambda _=False, label=checkbox.text(): self._open_payment_wizard(label)
                 )
-                row.addWidget(setting_button)
+                payment_grid.addWidget(setting_button, payment_row, 2)
                 self._payment_setting_buttons.append(setting_button)
-            root.addLayout(row)
+            payment_row += 1
 
         add_payment_row(self.payment_cash, with_setting=False)
         add_payment_row(self.payment_qris_dana, True, "QRIS_DANA")
         add_payment_row(self.payment_qris_midtrans, True, "QRIS_MIDTRANS")
         add_payment_row(self.payment_transfer, True, "BANK")
         add_payment_row(self.payment_all, with_setting=True)
+        payment_layout.addLayout(payment_grid)
+        payment_layout.addStretch(1)
+        tabs.addTab(payment_tab, "Seting Atur Pembayaran Kasir")
+        root.addWidget(tabs)
 
         action_row = QHBoxLayout()
         action_row.addStretch(1)
@@ -323,6 +375,7 @@ class StoreSettingsView(QWidget):
 
     def reload_settings(self):
         self._load_store()
+        self.db_folder_input.setText(app_settings.product_export_dir or "")
         self._set_editing(False)
 
     def _show_logo(self, logo_path: str | None):
@@ -351,6 +404,7 @@ class StoreSettingsView(QWidget):
         self.whatsapp_input.setReadOnly(not editing)
         self.choose_logo_button.setEnabled(editing)
         self.remove_logo_button.setEnabled(editing)
+        self.db_folder_browse_button.setEnabled(editing)
         for checkbox in (
             self.payment_cash,
             self.payment_qris_dana,
@@ -392,6 +446,154 @@ class StoreSettingsView(QWidget):
         self.remove_logo = True
         self._show_logo(None)
 
+    def _browse_database_folder(self):
+        start_dir = self.db_folder_input.text().strip() or str(
+            app_settings.data_dir
+        )
+        folder = QFileDialog.getExistingDirectory(
+            self,
+            "Pilih Folder Simpan Database",
+            start_dir,
+        )
+        if folder:
+            self.db_folder_input.setText(folder)
+
+    PRODUCTS_DB_FILENAME = "pos-produk.db"
+
+    def _save_products_database(self) -> bool:
+        chosen = self.db_folder_input.text().strip()
+        if not chosen:
+            return True
+        folder = Path(chosen).expanduser()
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            QMessageBox.warning(
+                self,
+                "Folder tidak dapat disimpan",
+                str(exc),
+            )
+            return False
+        target = folder / self.PRODUCTS_DB_FILENAME
+        if target.exists():
+            answer = QMessageBox.question(
+                self,
+                "File produk sudah ada",
+                f"File {self.PRODUCTS_DB_FILENAME} sudah ada di folder "
+                "tersebut. Timpa dengan data produk terbaru dari aplikasi?\n"
+                "Pilih Tidak bila file sedang diedit di aplikasi lain.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                self._persist_product_export_dir(folder)
+                return True
+        try:
+            self._export_products_snapshot(target)
+        except (OSError, sqlite3.Error, SQLAlchemyError) as exc:
+            QMessageBox.warning(
+                self,
+                "Database produk tidak dapat disimpan",
+                str(exc),
+            )
+            return False
+        self._persist_product_export_dir(folder)
+        QMessageBox.information(
+            self,
+            "Database produk disimpan",
+            f"Snapshot tabel produk tersimpan di:\n{target}\n\n"
+            "File berisi tabel produk (serta kategori & satuan sebagai "
+            "referensi) dan dapat diedit dengan aplikasi SQLite, CSV, "
+            "atau Excel, lalu diimpor kembali lewat menu Import Data.",
+        )
+        return True
+
+    def _persist_product_export_dir(self, folder: Path) -> None:
+        try:
+            app_settings.product_export_dir = str(folder)
+            persist_env_value("PRODUCT_EXPORT_DIR", str(folder))
+        except OSError as exc:
+            QMessageBox.warning(
+                self,
+                "Folder tidak dapat disimpan",
+                str(exc),
+            )
+
+    def _export_products_snapshot(self, target: Path) -> None:
+        session = self.service.session
+        categories = session.scalars(
+            select(Category).where(Category.deleted_at.is_(None))
+        ).all()
+        units = session.scalars(
+            select(Unit).where(Unit.deleted_at.is_(None))
+        ).all()
+        products = session.scalars(
+            select(Product).where(Product.deleted_at.is_(None))
+        ).all()
+        if target.exists():
+            target.unlink()
+        conn = sqlite3.connect(str(target))
+        try:
+            conn.execute(
+                "CREATE TABLE categories ("
+                "id INTEGER PRIMARY KEY, name TEXT NOT NULL)"
+            )
+            conn.execute(
+                "CREATE TABLE units ("
+                "id INTEGER PRIMARY KEY, name TEXT NOT NULL, "
+                "symbol TEXT NOT NULL)"
+            )
+            conn.execute(
+                "CREATE TABLE products ("
+                "id INTEGER PRIMARY KEY, "
+                "sku TEXT NOT NULL, "
+                "barcode TEXT, "
+                "name TEXT NOT NULL, "
+                "category_id INTEGER, "
+                "unit_id INTEGER, "
+                "purchase_price INTEGER NOT NULL DEFAULT 0, "
+                "selling_price INTEGER NOT NULL DEFAULT 0, "
+                "stock_qty INTEGER NOT NULL DEFAULT 0, "
+                "min_stock INTEGER NOT NULL DEFAULT 0, "
+                "is_active INTEGER NOT NULL DEFAULT 1, "
+                "deleted_at TEXT)"
+            )
+            conn.executemany(
+                "INSERT INTO categories (id, name) VALUES (?, ?)",
+                [(category.id, category.name) for category in categories],
+            )
+            conn.executemany(
+                "INSERT INTO units (id, name, symbol) VALUES (?, ?, ?)",
+                [(unit.id, unit.name, unit.symbol) for unit in units],
+            )
+            conn.executemany(
+                "INSERT INTO products ("
+                "id, sku, barcode, name, category_id, unit_id, "
+                "purchase_price, selling_price, stock_qty, min_stock, "
+                "is_active, deleted_at"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (
+                        product.id,
+                        product.sku,
+                        product.barcode or "",
+                        product.name,
+                        product.category_id,
+                        product.unit_id,
+                        product.purchase_price,
+                        product.selling_price,
+                        product.stock_qty,
+                        product.min_stock,
+                        1 if product.is_active else 0,
+                        None,
+                    )
+                    for product in products
+                ],
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
     def _save(self):
         try:
             store = self.service.save(
@@ -421,6 +623,8 @@ class StoreSettingsView(QWidget):
             "Pengaturan tersimpan",
             "Profil toko berhasil diperbarui.",
         )
+        if not self._save_products_database():
+            return
         self._save_payment_settings()
 
     def _save_payment_settings(self):
@@ -439,4 +643,5 @@ class StoreSettingsView(QWidget):
 
     def _cancel_edit(self):
         self._load_store()
+        self.db_folder_input.setText(app_settings.product_export_dir or "")
         self._set_editing(False)

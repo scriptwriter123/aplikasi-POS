@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 from app.core.exceptions import AuthenticationError
 from app.core.security import verify_password
+from app.models import LoginHistory
 from app.repositories.user_repository import UserRepository
 
 
@@ -31,5 +32,7 @@ class AuthService:
         user.failed_login_count = 0
         user.locked_until = None
         user.last_login_at = now
+        # Riwayat login dipakai laporan absensi karyawan.
+        self.users.session.add(LoginHistory(user_id=user.id, login_at=now))
         self.users.session.flush()
         return user

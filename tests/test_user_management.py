@@ -3,7 +3,8 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PySide6.QtWidgets import QApplication, QLabel
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication, QLabel, QLineEdit, QMessageBox
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
@@ -18,13 +19,11 @@ from app.services.user_management_service import UserManagementService
 from app.ui.main_window import MainWindow
 from app.ui.views.cashier_view import CashierView
 from app.ui.views.dashboard_view import DashboardView
-from app.ui.views.financial_view import FinancialView
+from app.ui.views.report_center_view import ReportCenterView
 from app.ui.views.login_view import LoginView
 from app.ui.views.master_data_view import MasterDataView
 from app.ui.views.purchase_view import PurchaseView
-from app.ui.views.report_view import ReportView
 from app.ui.views.store_settings_view import StoreSettingsView
-from app.ui.views.supplier_view import SupplierView
 from app.ui.widgets import COPYRIGHT_CAPTION
 from app.ui.views.user_management_view import UserManagementView
 
@@ -94,6 +93,225 @@ def test_owner_can_create_staff_account_with_hashed_password(
     assert verify_password("secure-pass-1", created.password_hash)
     assert created.password_hash != "secure-pass-1"
     assert created in service.list_users(owner)
+
+
+def test_owner_can_create_user_with_free_text_bagian(user_session: Session):
+    owner = make_user(user_session, "owner", "OWNER")
+    service = make_service(user_session)
+
+    created = service.create_user(
+        owner,
+        username="teknisi01",
+        full_name="Teknisi Satu",
+        password="secure-pass-1",
+        role_name="Teknisi",
+    )
+    assert created.role.name == "Teknisi"
+
+    # Ejaan berbeda kapital memakai bagian/tugas yang sama.
+    same_role = service.create_user(
+        owner,
+        username="teknisi02",
+        full_name="Teknisi Dua",
+        password="secure-pass-1",
+        role_name="teknisi",
+    )
+    assert same_role.role.id == created.role.id
+
+    with pytest.raises(ValidationError, match="Jabatan wajib diisi"):
+        service.create_user(
+            owner,
+            username="tanpa-bagian",
+            full_name="Tanpa Bagian",
+            password="secure-pass-1",
+            role_name="   ",
+        )
+    with pytest.raises(ValidationError, match="Role yang dapat dibuat"):
+        service.create_user(
+            owner,
+            username="pemalsu-owner",
+            full_name="Pemalsu Owner",
+            password="secure-pass-1",
+            role_name="OWNER",
+        )
+
+
+def test_user_management_view_shows_free_text_bagian_input(
+    user_session: Session,
+    qt_app,
+):
+    owner = make_user(user_session, "owner", "OWNER")
+    view = UserManagementView(owner, make_service(user_session))
+
+    assert isinstance(view.role_input, QLineEdit)
+    labels = [
+        label.text()
+        for label in view.findChildren(QLabel)
+        if label.text() == "Jabatan"
+    ]
+    assert labels, "Label Jabatan harus tampil pada form"
+    wa_labels = [
+        label.text()
+        for label in view.findChildren(QLabel)
+        if label.text() == "No. WA"
+    ]
+    assert wa_labels, "Label No. WA harus tampil pada form"
+    assert isinstance(view.wa_input, QLineEdit)
+    assert view.user_table.horizontalHeaderItem(2).text() == "Jabatan"
+    assert view.user_table.horizontalHeaderItem(3).text() == "No. WA"
+    view.close()
+
+
+def test_owner_can_update_user(user_session: Session):
+    owner = make_user(user_session, "owner", "OWNER")
+    staff = make_user(user_session, "kasir01", "CASHIER")
+    service = make_service(user_session)
+
+    updated = service.update_user(
+        owner,
+        staff.id,
+        username="kasir02",
+        full_name="Kasir Dua",
+        role_name="Kasir Sore",
+    )
+    assert updated.username == "kasir02"
+    assert updated.full_name == "Kasir Dua"
+    assert updated.role.name == "Kasir Sore"
+
+    # Akun OWNER: bagian/tugas tidak boleh berubah walau teks diganti.
+    updated_owner = service.update_user(
+        owner,
+        owner.id,
+        username="owner-baru",
+        full_name="Owner Baru",
+        role_name="Manajer",
+    )
+    assert updated_owner.username == "owner-baru"
+    assert updated_owner.role.name == "OWNER"
+
+    with pytest.raises(ValidationError, match="Username sudah digunakan"):
+        service.update_user(
+            owner,
+            staff.id,
+            username="owner-baru",
+            full_name="Kasir Dua",
+            role_name="Kasir Sore",
+        )
+    with pytest.raises(ValidationError, match="Jabatan wajib diisi"):
+        service.update_user(
+            owner,
+            staff.id,
+            username="kasir02",
+            full_name="Kasir Dua",
+            role_name="   ",
+        )
+
+
+def test_user_management_view_inline_edit(
+    user_session: Session,
+    qt_app,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        QMessageBox,
+        "information",
+        lambda *args, **kwargs: QMessageBox.StandardButton.Ok,
+    )
+    owner = make_user(user_session, "owner", "OWNER")
+    staff = make_user(user_session, "kasir01", "CASHIER")
+    service = make_service(user_session)
+    view = UserManagementView(owner, service)
+    view.resize(1100, 700)
+    view.show()
+    qt_app.processEvents()
+
+    staff_row = view.user_ids.index(staff.id)
+    view.user_table.selectRow(staff_row)
+    view._toggle_edit_user()
+    assert view._editing_row == staff_row
+    assert view.edit_button.text() == "Simpan Edit"
+    assert view.cancel_edit_button.isVisible()
+    assert not view.delete_button.isEnabled()
+    assert view.user_table.item(staff_row, 0).flags() & Qt.ItemFlag.ItemIsEditable
+
+    view.user_table.item(staff_row, 0).setText("Nama Baru")
+    view.user_table.item(staff_row, 2).setText("Teknisi")
+    view.user_table.item(staff_row, 3).setText("0812 3456 7890")
+    view._toggle_edit_user()
+
+    assert view._editing_row is None
+    assert view.edit_button.text() == "Edit Pengguna Terpilih"
+    assert view.delete_button.isEnabled()
+    user_session.refresh(staff)
+    assert staff.full_name == "Nama Baru"
+    assert staff.role.name == "Teknisi"
+    assert staff.whatsapp == "0812 3456 7890"
+
+    view.close()
+
+
+def test_user_whatsapp_validation_and_persistence(user_session: Session):
+    owner = make_user(user_session, "owner", "OWNER")
+    service = make_service(user_session)
+
+    created = service.create_user(
+        owner,
+        username="wa01",
+        full_name="WA Satu",
+        password="secure-pass-1",
+        role_name="Kasir",
+        whatsapp="+62 812-3456-7890",
+    )
+    assert created.whatsapp == "+62 812-3456-7890"
+
+    no_wa_empty = service.create_user(
+        owner,
+        username="wa02",
+        full_name="WA Dua",
+        password="secure-pass-1",
+        role_name="Kasir",
+    )
+    assert no_wa_empty.whatsapp is None
+
+    with pytest.raises(ValidationError, match="No. WA hanya boleh"):
+        service.create_user(
+            owner,
+            username="wa03",
+            full_name="WA Tiga",
+            password="secure-pass-1",
+            role_name="Kasir",
+            whatsapp="bukan-nomor",
+        )
+    with pytest.raises(ValidationError, match="7 sampai 20 digit"):
+        service.create_user(
+            owner,
+            username="wa04",
+            full_name="WA Empat",
+            password="secure-pass-1",
+            role_name="Kasir",
+            whatsapp="123",
+        )
+
+    service.update_user(
+        owner,
+        created.id,
+        username="wa01",
+        full_name="WA Satu",
+        role_name="Kasir",
+        whatsapp="0812 9999 8888",
+    )
+    assert created.whatsapp == "0812 9999 8888"
+
+    # Tanpa parameter whatsapp: nomor lama tidak berubah.
+    service.update_user(
+        owner,
+        created.id,
+        username="wa01",
+        full_name="WA Satu Baru",
+        role_name="Kasir",
+    )
+    assert created.whatsapp == "0812 9999 8888"
+    assert created.full_name == "WA Satu Baru"
 
 
 def test_non_owner_cannot_list_or_create_users(user_session: Session):
@@ -181,7 +399,7 @@ def test_owner_dashboard_and_staff_sales_routing(
     owner_window.dashboard.manage_users_requested.emit()
     assert isinstance(owner_window.stack.currentWidget(), UserManagementView)
     owner_window.dashboard.sales_report_requested.emit()
-    assert isinstance(owner_window.stack.currentWidget(), ReportView)
+    assert isinstance(owner_window.stack.currentWidget(), ReportCenterView)
     owner_window.stack.currentWidget().back_button.click()
     assert owner_window.stack.currentWidget() is owner_window.dashboard
     owner_window.dashboard.suppliers_requested.emit()
@@ -189,16 +407,20 @@ def test_owner_dashboard_and_staff_sales_routing(
     assert owner_window.windowTitle() == "POS Retail — Belanja dan Supplier"
     assert owner_window.stack.currentWidget().supplier_input is not None
     assert owner_window.stack.currentWidget().product_input is not None
-    owner_window.purchase_view.manage_suppliers_button.click()
-    assert isinstance(owner_window.stack.currentWidget(), SupplierView)
-    assert owner_window.windowTitle() == "POS Retail — Data Supplier"
-    owner_window.stack.currentWidget().purchases_requested.emit()
+    owner_window.purchase_view.tabs.setCurrentIndex(1)
+    assert (
+        owner_window.purchase_view.tabs.currentWidget()
+        is owner_window.supplier_view
+    )
+    assert owner_window.windowTitle() == "POS Retail — Belanja dan Supplier"
+    owner_window.purchase_view.supplier_view.purchases_requested.emit()
     assert isinstance(owner_window.stack.currentWidget(), PurchaseView)
+    assert owner_window.purchase_view.tabs.currentIndex() == 0
     owner_window.stack.currentWidget().back_button.click()
     assert owner_window.stack.currentWidget() is owner_window.dashboard
     owner_window.dashboard.financial_report_requested.emit()
-    assert isinstance(owner_window.stack.currentWidget(), FinancialView)
-    assert owner_window.windowTitle() == "POS Retail — Laporan Keuangan"
+    assert isinstance(owner_window.stack.currentWidget(), ReportCenterView)
+    assert owner_window.windowTitle() == "POS Retail — Laporan"
     owner_window.stack.currentWidget().back_button.click()
     assert owner_window.stack.currentWidget() is owner_window.dashboard
     owner_window.dashboard.master_data_requested.emit()
@@ -284,7 +506,7 @@ def test_owner_dashboard_fits_all_menu_cards_without_dashboard_heading(
     dashboard.show()
     qt_app.processEvents()
 
-    assert dashboard.menu_grid.count() == 7
+    assert dashboard.menu_grid.count() == 6
     assert dashboard.menu_grid.columnCount() == 3
     assert all(
         dashboard.menu_grid.itemAt(index).widget().minimumHeight() == 125

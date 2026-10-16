@@ -103,25 +103,33 @@ class SupplierView(QWidget):
     back_requested = Signal()
     purchases_requested = Signal()
 
-    def __init__(self, actor, session, parent=None):
+    def __init__(self, actor, session, parent=None, *, embedded=False):
         super().__init__(parent)
         self.actor = actor
         self.service = SupplierService(session)
         self.supplier_ids: list[int] = []
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(32, 26, 32, 30)
+        if embedded:
+            # Di-embed sebagai tab di jendela Belanja dan Supplier;
+            # judul & tombol kembali ditangani jendela induk.
+            root.setContentsMargins(0, 8, 0, 0)
+        else:
+            root.setContentsMargins(32, 26, 32, 30)
         root.setSpacing(14)
 
-        header = QHBoxLayout()
-        self.back_button = create_dashboard_back_button(self)
-        self.back_button.clicked.connect(self.back_requested.emit)
-        title = QLabel("Data Supplier")
-        title.setStyleSheet("font-size: 25px; font-weight: 700; color: #ffffff;")
-        header.addWidget(self.back_button)
-        header.addWidget(title)
-        header.addStretch(1)
-        root.addLayout(header)
+        if not embedded:
+            header = QHBoxLayout()
+            self.back_button = create_dashboard_back_button(self)
+            self.back_button.clicked.connect(self.back_requested.emit)
+            title = QLabel("Data Supplier")
+            title.setStyleSheet(
+                "font-size: 25px; font-weight: 700; color: #ffffff;"
+            )
+            header.addWidget(self.back_button)
+            header.addWidget(title)
+            header.addStretch(1)
+            root.addLayout(header)
 
         description = QLabel(
             "Catat dan perbarui informasi pemasok: kode, nama, nomor telepon, "

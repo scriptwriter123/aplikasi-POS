@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     dana_private_key: str | None = None
     dana_base_url: str = "https://gateway-mp-sit.dana.id"
     pos_data_dir: str | None = None
+    product_export_dir: str | None = None
     billing_server_url: str | None = None
     trial_minutes: int | None = None
 
@@ -41,3 +42,19 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def persist_env_value(key: str, value: str) -> None:
+    """Simpan satu pasang nilai key=value ke file .env (tanpa menghapus lain)."""
+    env_path = Path.cwd() / ".env"
+    lines: list[str] = []
+    if env_path.is_file():
+        lines = env_path.read_text(encoding="utf-8").splitlines()
+    replaced = False
+    for index, line in enumerate(lines):
+        if line.strip().startswith(f"{key}="):
+            lines[index] = f"{key}={value}"
+            replaced = True
+    if not replaced:
+        lines.append(f"{key}={value}")
+    env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")

@@ -367,10 +367,11 @@ def test_owner_can_configure_bulk_price_rule_from_master_data(
     )
     assert not view.bulk_price_button.isHidden()
     assert dialog.windowTitle() == "Harga Spesial Partai"
+    dialog.tier_rows[1].active_checkbox.setChecked(False)
 
-    dialog.quantity_threshold_input.setValue(5)
-    dialog.discount_input.setValue(12.5)
-    assert dialog.special_price_input.value() == 1_750
+    dialog.tier_rows[0].threshold_input.setValue(5)
+    dialog.tier_rows[0].discount_input.setValue(12.5)
+    assert dialog.tier_rows[0].price_input.value() == 1_750
     assert dialog.regular_price_label.text() == "Rp 2.000,00"
     monkeypatch.setattr(
         QMessageBox,
@@ -389,8 +390,8 @@ def test_owner_can_configure_bulk_price_rule_from_master_data(
     assert rule.pricing_mode == "PERCENT"
     assert dialog.rules_table.rowCount() == 1
 
-    dialog.special_price_input.setValue(1_600)
-    assert dialog.discount_input.value() == 20
+    dialog.tier_rows[0].price_input.setValue(1_600)
+    assert dialog.tier_rows[0].discount_input.value() == 20
     dialog._save_rule()
     session.refresh(rule)
     assert rule.special_price == 1_600
@@ -433,7 +434,7 @@ def test_owner_can_configure_bulk_price_rule_from_master_data(
     )
     dialog._select_rule_from_table(second_row, 0)
     assert dialog.product_input.currentData() == second_product.id
-    assert dialog.quantity_threshold_input.value() == 3
+    assert dialog.tier_rows[0].threshold_input.value() == 3
     dialog.close()
     view.close()
 
@@ -589,7 +590,7 @@ def test_product_form_configures_bulk_pricing_with_product(
     view = MasterDataView(owner, session)
     dialog = view._create_product_dialog()
     assert dialog is not None
-    assert "qty pembelian ≥" in dialog.bulk_flow_label.text()
+    assert "≥2" in dialog.bulk_flow_label.text()
 
     dialog.sku_input.setText("FORM-BULK")
     dialog.name_input.setText("Produk Form Partai")
@@ -600,10 +601,11 @@ def test_product_form_configures_bulk_pricing_with_product(
     dialog.purchase_price.setValue(1_000)
     dialog.selling_price.setValue(2_000)
     dialog.bulk_enabled_input.setChecked(True)
-    dialog.bulk_threshold_input.setValue(6)
-    dialog.bulk_special_price_input.setValue(1_500)
+    dialog.bulk_tier_rows[0].threshold_input.setValue(6)
+    dialog.bulk_tier_rows[0].price_input.setValue(1_500)
+    dialog.bulk_tier_rows[1].active_checkbox.setChecked(False)
 
-    assert dialog.bulk_discount_input.value() == 25
+    assert dialog.bulk_tier_rows[0].discount_input.value() == 25
     monkeypatch.setattr(QMessageBox, "information", lambda *_args: None)
     view._save_form(dialog)
 
@@ -620,3 +622,104 @@ def test_product_form_configures_bulk_pricing_with_product(
     assert rule.discount_percent == Decimal("25.00")
     assert rule.pricing_mode == "PRICE"
     view.close()
+
+
+def test_product_form_saves_three_bulk_tiers(
+    master_session,
+    qt_app,
+    monkeypatch,
+):
+    session, owner, _cashier, category, unit = master_session
+    view = MasterDataView(owner, session)
+    dialog = view._create_product_dialog()
+    assert dialog is not None
+
+    dialog.sku_input.setText("FORM-TIER3")
+    dialog.name_input.setText("Produk Tiga Tingkat")
+    dialog.category_input.setCurrentIndex(
+        dialog.category_input.findData(category.id)
+    )
+    dialog.unit_input.setCurrentIndex(dialog.unit_input.findData(unit.id))
+    dialog.purchase_price.setValue(1_000)
+    dialog.selling_price.setValue(2_000)
+    dialog.bulk_enabled_input.setChecked(True)
+    dialog.bulk_tier_rows[0].price_input.setValue(1_900)
+    dialog.bulk_tier_rows[1].price_input.setValue(1_800)
+    dialog.bulk_tier_rows[2].active_checkbox.setChecked(True)
+    dialog.bulk_tier_rows[2].threshold_input.setValue(5)
+    dialog.bulk_tier_rows[2].price_input.setValue(1_700)
+
+    monkeypatch.setattr(QMessageBox, "information", lambda *_args: None)
+    view._save_form(dialog)
+
+    product = session.scalar(
+        select(Product).where(Product.sku == "FORM-TIER3")
+    )
+    assert product is not None
+    service = BulkPricingService(session)
+    rules = service.rules_for_product(product.id)
+    assert [
+        (rule.quantity_threshold, rule.special_price) for rule in rules
+    ] == [(2, 1_900), (3, 1_800), (5, 1_700)]
+    assert service.unit_price(product, 1) == 2_000
+    assert service.unit_price(product, 2) == 1_900
+    assert service.unit_price(product, 3) == 1_800
+    assert service.unit_price(product, 4) == 1_800
+    assert service.unit_price(product, 5) == 1_700
+    assert service.unit_price(product, 9) == 1_700
+    view.close()
+
+
+def test_bulk_pricing_service_replaces_stale_tiers(master_session):
+    session, owner, _cashier, category, unit = master_session
+    product = MasterDataService(session).save_product(
+        owner,
+        product_id=None,
+        sku="TIER-STALE",
+        barcode="",
+        name="Produk Ganti Tingkat",
+        category_id=category.id,
+        unit_id=unit.id,
+        purchase_price=1_000,
+        selling_price=2_000,
+        stock_qty=10,
+        min_stock=0,
+        is_active=True,
+    )
+    service = BulkPricingService(session)
+    service.save_rules(
+        owner,
+        product.id,
+        [
+            {
+                "quantity_threshold": 2,
+                "discount_percent": Decimal("5"),
+                "special_price": 1_900,
+                "pricing_mode": "PERCENT",
+            },
+            {
+                "quantity_threshold": 5,
+                "discount_percent": Decimal("15"),
+                "special_price": 1_700,
+                "pricing_mode": "PERCENT",
+            },
+        ],
+    )
+    assert len(service.rules_for_product(product.id)) == 2
+
+    service.save_rules(
+        owner,
+        product.id,
+        [
+            {
+                "quantity_threshold": 3,
+                "discount_percent": Decimal("10"),
+                "special_price": 1_800,
+                "pricing_mode": "PERCENT",
+            }
+        ],
+    )
+    rules = service.rules_for_product(product.id)
+    assert len(rules) == 1
+    assert rules[0].quantity_threshold == 3
+    assert rules[0].special_price == 1_800

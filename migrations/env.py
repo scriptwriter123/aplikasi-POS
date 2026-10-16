@@ -1,3 +1,4 @@
+import logging
 import sys
 from logging.config import fileConfig
 from pathlib import Path
@@ -17,8 +18,14 @@ config = context.config
 database_url = settings.database_url
 config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 
-if config.config_file_name:
+_app_logging_configured = any(
+    getattr(handler, "_pos_console_handler", False)
+    for handler in logging.getLogger().handlers
+)
+if config.config_file_name and not _app_logging_configured:
     fileConfig(config.config_file_name)
+elif _app_logging_configured:
+    logging.getLogger("sqlalchemy").setLevel(logging.WARNING)
 
 target_metadata = User.metadata
 

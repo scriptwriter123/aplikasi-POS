@@ -11,6 +11,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
+from app.core.config import settings as app_settings
 from app.core.database import Base
 from app.core.exceptions import AuthorizationError, ValidationError
 from app.models import Role, Store, User
@@ -67,6 +68,7 @@ def test_owner_can_save_store_profile_and_logo_is_copied(
     monkeypatch,
 ):
     session, owner, _cashier = settings_session
+    monkeypatch.setattr(app_settings, "pos_data_dir", None)
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
     logo_source = tmp_path / "shop-logo.png"
     image = QImage(24, 24, QImage.Format.Format_ARGB32)
@@ -168,6 +170,7 @@ def test_store_name_and_logo_update_main_and_login_window_branding(
     qt_app,
 ):
     session, owner, _cashier = settings_session
+    monkeypatch.setattr(app_settings, "pos_data_dir", None)
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
     service = StoreSettingsService(session)
     user_management = UserManagementService(session, UserRepository(session))

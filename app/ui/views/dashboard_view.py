@@ -20,6 +20,8 @@ class DashboardView(QWidget):
     manage_users_requested = Signal()
     sales_report_requested = Signal()
     financial_report_requested = Signal()
+    # Kartu "Laporan" gabungan: penjualan + keuangan + absensi karyawan.
+    report_requested = Signal()
     master_data_requested = Signal()
     store_settings_requested = Signal()
     suppliers_requested = Signal()
@@ -106,9 +108,9 @@ class DashboardView(QWidget):
         if role_name == "OWNER":
             self.menu_grid.addWidget(
                 self._create_card(
-                    "Manajemen Pengguna",
-                    "Buat akun Admin, Supervisor, dan Kasir.",
-                    "Kelola Pengguna",
+                    "Manajemen Toko",
+                    "Kelola pengguna dan inventaris toko.",
+                    "Kelola Toko",
                     self.manage_users_requested.emit,
                 ),
                 0,
@@ -116,23 +118,13 @@ class DashboardView(QWidget):
             )
             self.menu_grid.addWidget(
                 self._create_card(
-                    "Laporan Penjualan",
-                    "Tinjau transaksi berdasarkan hari, bulan, tahun, atau periode khusus.",
+                    "Laporan",
+                    "Penjualan, keuangan, dan absensi karyawan.",
                     "Lihat Laporan",
-                    self.sales_report_requested.emit,
+                    self.report_requested.emit,
                 ),
                 0,
                 1,
-            )
-            self.menu_grid.addWidget(
-                self._create_card(
-                    "Laporan Keuangan",
-                    "Kelola saldo awal, pengeluaran toko, dan laporan keuangan.",
-                    "Lihat Laporan",
-                    self.financial_report_requested.emit,
-                ),
-                0,
-                2,
             )
             self.menu_grid.addWidget(
                 self._create_card(
@@ -141,8 +133,8 @@ class DashboardView(QWidget):
                     "Kelola Data",
                     self.master_data_requested.emit,
                 ),
-                1,
                 0,
+                2,
             )
             self.menu_grid.addWidget(
                 self._create_card(
@@ -152,7 +144,7 @@ class DashboardView(QWidget):
                     self.store_settings_requested.emit,
                 ),
                 1,
-                1,
+                0,
             )
             self.menu_grid.addWidget(
                 self._create_card(
@@ -163,7 +155,7 @@ class DashboardView(QWidget):
                     self.suppliers_requested.emit,
                 ),
                 1,
-                2,
+                1,
             )
             self.menu_grid.addWidget(
                 self._create_card(
@@ -175,8 +167,8 @@ class DashboardView(QWidget):
                     accent="#b45309",
                     accent_hover="#d97706",
                 ),
+                1,
                 2,
-                0,
             )
         else:
             self.menu_grid.addWidget(

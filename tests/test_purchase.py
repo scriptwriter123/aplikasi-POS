@@ -4,7 +4,7 @@ from datetime import date
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QDialog, QLabel, QMessageBox
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
@@ -23,8 +23,9 @@ from app.models import (
     User,
 )
 from app.services.financial_service import FinancialService
+from app.services.master_data_service import MasterDataService
 from app.services.purchase_service import PurchaseService
-from app.ui.views.purchase_view import PurchaseView
+from app.ui.views.purchase_view import NewProductDialog, PurchaseView
 
 
 @pytest.fixture
@@ -235,6 +236,14 @@ def test_purchase_window_lists_demo_purchase_and_debt_summary(
     view = PurchaseView(owner, session)
 
     assert view.windowTitle() == "Belanja dan Supplier"
+    assert view.tabs.count() == 3
+    assert view.tabs.tabText(0) == "Belanja"
+    assert view.tabs.tabText(1) == "Kelola Supplier"
+    assert view.tabs.tabText(2) == "Bayar Hutang"
+    label_texts = [label.text() for label in view.findChildren(QLabel)]
+    assert "QTY *" in label_texts
+    assert "Jumlah diterima *" not in label_texts
+    assert "Tabel Hutang" in label_texts
     assert view.supplier_input.count() == 1
     assert view.product_input.count() == 1
     assert view.quantity_input.minimum() == 1
@@ -244,4 +253,66 @@ def test_purchase_window_lists_demo_purchase_and_debt_summary(
     assert view.purchase_table.item(0, 2).text() == supplier.name
     assert view.purchase_table.item(0, 5).text() == "Tempo"
     assert "Rp 20.000,00" in view.debt_summary.text()
+    assert view.debt_table.rowCount() == 1
+    assert view.debt_table.item(0, 2).text() == supplier.name
+    assert view.debt_table.item(0, 7).text() == "Rp 20.000,00"
     view.close()
+
+
+def test_belanja_quick_creates_product_with_auto_defaults(
+    purchase_session,
+    qt_app,
+    monkeypatch,
+):
+    session, owner, _cashier, supplier, _product = purchase_session
+    monkeypatch.setattr(QMessageBox, "information", lambda *_a, **_k: None)
+    view = PurchaseView(owner, session)
+
+    assert view.new_product_button.text() == "Produk Baru"
+
+    dialog = NewProductDialog(
+        MasterDataService(session),
+        purchase_price=5_000,
+        parent=view,
+    )
+    assert dialog.purchase_price_input.value() == 5_000
+    assert dialog.selling_price_input.value() == 6_500
+    # Belum ada kategori/satuan di fixture -> pilihan otomatis (None).
+    assert dialog.category_input.currentData() is None
+    assert dialog.unit_input.currentData() is None
+
+    dialog.name_input.setText("Kopi Sachet")
+    assert view._save_new_product(dialog) is True
+
+    created = session.scalar(
+        select(Product).where(Product.name == "Kopi Sachet")
+    )
+    assert created is not None
+    assert created.sku
+    assert created.stock_qty == 0
+    assert created.is_active is True
+    assert created.supplier_id == supplier.id
+    assert created.category.name == "Umum"
+    assert created.unit.symbol == "pcs"
+    # Produk baru langsung terpilih di form Belanja.
+    assert view.product_input.currentData() == created.id
+    view.close()
+
+
+def test_belanja_quick_create_rejects_blank_name(
+    purchase_session,
+    qt_app,
+    monkeypatch,
+):
+    session, owner, _cashier, _supplier, _product = purchase_session
+    warnings = []
+    monkeypatch.setattr(
+        QMessageBox,
+        "warning",
+        lambda _parent, _title, message, *a, **k: warnings.append(message),
+    )
+    dialog = NewProductDialog(MasterDataService(session), parent=None)
+    dialog._validate_and_accept()
+    assert warnings == ["Isi nama produk."]
+    assert dialog.result() != QDialog.DialogCode.Accepted
+    dialog.close()

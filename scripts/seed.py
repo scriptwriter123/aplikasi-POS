@@ -101,7 +101,9 @@ SAMPLE_PRODUCTS = [
 ]
 
 
-def seed_data(session) -> int:
+def seed_data(
+    session, *, include_users: bool = True, include_products: bool = True
+) -> int:
     roles = {}
     for name in ROLES:
         role = session.query(Role).filter_by(name=name).first()
@@ -111,7 +113,10 @@ def seed_data(session) -> int:
             session.flush()
         roles[name] = role
 
-    if session.query(User).filter_by(username="owner").first() is None:
+    if (
+        include_users
+        and session.query(User).filter_by(username="owner").first() is None
+    ):
         session.add(
             User(
                 username="owner",
@@ -169,50 +174,64 @@ def seed_data(session) -> int:
             session.add(PaymentMethod(code=code, name=name))
 
     added_products = 0
-    for (
-        sku,
-        barcode,
-        name,
-        category_name,
-        unit_name,
-        purchase_price,
-        selling_price,
-        stock_qty,
-        min_stock,
-    ) in SAMPLE_PRODUCTS:
-        product = session.query(Product).filter_by(sku=sku).first()
-        supplier = suppliers[SUPPLIER_BY_CATEGORY[category_name]]
-        if product is not None:
-            if product.supplier_id is None:
-                product.supplier_id = supplier.id
-            continue
-        session.add(
-            Product(
-                sku=sku,
-                barcode=barcode,
-                name=name,
-                category_id=categories[category_name].id,
-                unit_id=units[unit_name].id,
-                supplier_id=supplier.id,
-                purchase_price=purchase_price,
-                selling_price=selling_price,
-                stock_qty=stock_qty,
-                min_stock=min_stock,
+    if include_products:
+        for (
+            sku,
+            barcode,
+            name,
+            category_name,
+            unit_name,
+            purchase_price,
+            selling_price,
+            stock_qty,
+            min_stock,
+        ) in SAMPLE_PRODUCTS:
+            product = session.query(Product).filter_by(sku=sku).first()
+            supplier = suppliers[SUPPLIER_BY_CATEGORY[category_name]]
+            if product is not None:
+                if product.supplier_id is None:
+                    product.supplier_id = supplier.id
+                continue
+            session.add(
+                Product(
+                    sku=sku,
+                    barcode=barcode,
+                    name=name,
+                    category_id=categories[category_name].id,
+                    unit_id=units[unit_name].id,
+                    supplier_id=supplier.id,
+                    purchase_price=purchase_price,
+                    selling_price=selling_price,
+                    stock_qty=stock_qty,
+                    min_stock=min_stock,
+                )
             )
-        )
-        added_products += 1
+            added_products += 1
 
     return added_products
 
 
-def main():
+def main(argv: list[str] | None = None) -> None:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    include_users = "--no-users" not in argv
+    include_products = "--no-products" not in argv
     with session_scope() as session:
-        added_products = seed_data(session)
-    print(
-        f"Seed selesai. {added_products} produk contoh ditambahkan "
-        f"(tersedia {len(SAMPLE_PRODUCTS)} SKU contoh)."
-    )
-    print("Login awal: owner / owner123 (jika akun owner belum pernah dibuat).")
+        added_products = seed_data(
+            session,
+            include_users=include_users,
+            include_products=include_products,
+        )
+    if include_products:
+        print(
+            f"Seed selesai. {added_products} produk contoh ditambahkan "
+            f"(tersedia {len(SAMPLE_PRODUCTS)} SKU contoh)."
+        )
+    else:
+        print("Seed selesai (tanpa produk contoh).")
+    if include_users:
+        print(
+            "Login awal: owner / owner123 (jika akun owner belum pernah dibuat)."
+        )
 
 
 if __name__ == "__main__":

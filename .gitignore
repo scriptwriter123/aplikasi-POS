@@ -42,6 +42,11 @@ server/data/
 .e2e-gui/
 .probe/
 
+# Node modules untuk MCP Playwright & artefak E2E GUI
+node_modules/
+e2e_shots/
+e2e_videos/
+
 # Log proses lokal (build PyInstaller, uvicorn server billing)
 *.log
 

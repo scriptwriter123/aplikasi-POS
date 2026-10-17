@@ -185,13 +185,22 @@ class PurchaseView(QWidget):
 
         description = QLabel(
             "Catat barang yang sudah diterima. Pembelian Tempo menjadi hutang "
-            "sampai jatuh tempo; pembelian Lunas langsung tercatat lunas. "
+            "sampai jatuh tempo; pembelian Lunas langsung tercatat lunas; "
+            "pembelian DP mencatat uang muka dan menyisakan hutang. "
             "Bila harga modal beli naik, harga jual dan harga spesial aktif "
             "otomatis menyesuaikan (margin % tetap; tidak pernah turun)."
         )
         description.setWordWrap(True)
         description.setStyleSheet("color: #a1a1aa;")
         belanja_layout.addWidget(description)
+
+        self.low_stock_label = QLabel()
+        self.low_stock_label.setWordWrap(True)
+        self.low_stock_label.setStyleSheet(
+            "color: #fdba74; background: #3a2410; padding: 8px; "
+            "border-radius: 6px;"
+        )
+        belanja_layout.addWidget(self.low_stock_label)
 
         form = QFormLayout()
         self.supplier_input = QComboBox()
@@ -206,6 +215,11 @@ class PurchaseView(QWidget):
         self.payment_status_input = QComboBox()
         self.payment_status_input.addItem("Lunas", "PAID")
         self.payment_status_input.addItem("Tempo", "TEMPO")
+        self.payment_status_input.addItem("DP (uang muka)", "DP")
+        self.dp_amount_input = QDoubleSpinBox()
+        self.dp_amount_input.setDecimals(0)
+        self.dp_amount_input.setRange(0, 2_000_000_000)
+        self.dp_amount_input.setGroupSeparatorShown(True)
         self.due_date_input = QDateEdit()
         self.due_date_input.setCalendarPopup(True)
         self.due_date_input.setDisplayFormat("dd MMMM yyyy")
@@ -237,6 +251,7 @@ class PurchaseView(QWidget):
         form.addRow("Harga modal per unit (Rp) *", self.unit_cost_input)
         form.addRow("Pembayaran dari akun", self.payment_account_input)
         form.addRow("Status pembelian *", self.payment_status_input)
+        form.addRow("Jumlah DP (Rp)", self.dp_amount_input)
         form.addRow("Jatuh tempo *", self.due_date_input)
         belanja_layout.addLayout(form)
 
@@ -287,12 +302,28 @@ class PurchaseView(QWidget):
         self.purchase_table.setSelectionMode(
             QTableWidget.SelectionMode.SingleSelection
         )
-        belanja_layout.addWidget(self.purchase_table, 1)
-        belanja_layout.addWidget(
+        self.tabs.addTab(belanja_page, "Belanja")
+
+        # ------------------------------------------- tab "Daftar Pembelian"
+        daftar_page = QWidget()
+        daftar_layout = QVBoxLayout(daftar_page)
+        daftar_layout.setContentsMargins(0, 8, 0, 0)
+        daftar_layout.setSpacing(12)
+
+        daftar_description = QLabel(
+            "Daftar seluruh pembelian toko — Lunas, DP (uang muka), dan "
+            "Tempo — lengkap dengan total, jatuh tempo, dan sisa hutangnya."
+        )
+        daftar_description.setWordWrap(True)
+        daftar_description.setStyleSheet("color: #a1a1aa;")
+        daftar_layout.addWidget(daftar_description)
+
+        daftar_layout.addWidget(self.purchase_table, 1)
+        daftar_layout.addWidget(
             create_copyright_label(self),
             alignment=Qt.AlignmentFlag.AlignRight,
         )
-        self.tabs.addTab(belanja_page, "Belanja")
+        self.tabs.addTab(daftar_page, "Daftar Pembelian")
 
         # ---------------------------------------------- tab "Kelola Supplier"
         self.supplier_view = SupplierView(actor, session, embedded=True)
@@ -478,6 +509,7 @@ class PurchaseView(QWidget):
                 account.id,
             )
         self._update_product_cost()
+        self._update_low_stock_clue(products)
 
         self.purchase_table.setRowCount(len(purchases))
         self.purchase_ids = []
@@ -487,8 +519,16 @@ class PurchaseView(QWidget):
             purchase = record["purchase"]
             self.purchase_ids.append(purchase.id)
             due = purchase.subtotal - purchase.paid_amount
-            if purchase.payment_status == "TEMPO":
+            if purchase.payment_status in {"TEMPO", "DP"}:
                 outstanding += due
+            if purchase.payment_status == "PAID":
+                status_label = "Lunas"
+            elif purchase.payment_status == "DP":
+                status_label = "DP (uang muka)"
+            elif purchase.paid_amount:
+                status_label = "Sebagian dibayar"
+            else:
+                status_label = "Tempo"
             values = (
                 purchase.order_no,
                 purchase.ordered_at.astimezone().strftime("%d-%m-%Y %H:%M")
@@ -497,15 +537,7 @@ class PurchaseView(QWidget):
                 record["supplier_name"],
                 record["product_name"],
                 rupiah(purchase.subtotal),
-                (
-                    "Lunas"
-                    if purchase.payment_status == "PAID"
-                    else (
-                        "Sebagian dibayar"
-                        if purchase.paid_amount
-                        else "Tempo"
-                    )
-                ),
+                status_label,
                 purchase.due_date.astimezone().strftime("%d-%m-%Y")
                 if purchase.due_date
                 else "-",
@@ -532,7 +564,9 @@ class PurchaseView(QWidget):
                 )
         self.debt_table.resizeColumnsToContents()
 
-        self.debt_summary.setText(f"Total hutang pembelian Tempo: {rupiah(outstanding)}")
+        self.debt_summary.setText(
+            f"Total sisa hutang pembelian (Tempo & DP): {rupiah(outstanding)}"
+        )
         self._update_due_date_state()
 
     def _update_product_cost(self, _index: int = -1):
@@ -555,10 +589,43 @@ class PurchaseView(QWidget):
             bool(self.supplier_input.count()) and not self.read_only
         )
 
+    def _update_low_stock_clue(self, products):
+        low_stock = [product for product in products if product.stock_qty < 5]
+        if not low_stock:
+            self.low_stock_label.setText(
+                "Clue stok: semua produk aktif punya stok aman (>= 5)."
+            )
+            return
+        out_of_stock = [
+            product for product in low_stock if product.stock_qty == 0
+        ]
+        running_low = [
+            product for product in low_stock if product.stock_qty > 0
+        ]
+        sections = [
+            "Clue stok menipis — pertimbangkan untuk dibelanjakan "
+            "di Catat Belanja:"
+        ]
+        if out_of_stock:
+            details = "\n".join(
+                f"{product.name} ({product.sku})"
+                for product in out_of_stock
+            )
+            sections.append(f"Stok habis (0):\n{details}")
+        if running_low:
+            details = "\n".join(
+                f"{product.name} ({product.sku}): stok {product.stock_qty}"
+                for product in running_low
+            )
+            sections.append(f"Stok rendah (< 5):\n{details}")
+        self.low_stock_label.setText("\n\n".join(sections))
+
     def _update_due_date_state(self, _index: int = -1):
-        self.due_date_input.setEnabled(
-            self.payment_status_input.currentData() == "TEMPO"
-        )
+        status = self.payment_status_input.currentData()
+        self.due_date_input.setEnabled(status in {"TEMPO", "DP"})
+        self.dp_amount_input.setEnabled(status == "DP")
+        if status != "DP":
+            self.dp_amount_input.setValue(0)
 
     def _record_purchase(self):
         supplier_id = self.supplier_input.currentData()
@@ -574,8 +641,13 @@ class PurchaseView(QWidget):
         payment_status = self.payment_status_input.currentData()
         due_date = (
             self.due_date_input.date().toPython()
-            if payment_status == "TEMPO"
+            if payment_status in {"TEMPO", "DP"}
             else None
+        )
+        dp_amount = (
+            int(self.dp_amount_input.value())
+            if payment_status == "DP"
+            else 0
         )
         product = self.session.get(Product, product_id)
         selling_before = product.selling_price if product is not None else None
@@ -590,9 +662,10 @@ class PurchaseView(QWidget):
                 due_date=due_date,
                 payment_account_id=(
                     self.payment_account_input.currentData()
-                    if payment_status == "PAID"
+                    if payment_status in {"PAID", "DP"}
                     else None
                 ),
+                dp_amount=dp_amount,
             )
         except (
             AuthorizationError,
@@ -668,8 +741,21 @@ class PurchaseView(QWidget):
             QMessageBox.warning(self, "Status pembayaran tidak berubah", str(exc))
             return
         self.refresh_data()
-        QMessageBox.information(
-            self,
-            "Pembelian lunas",
-            "Transaksi pembelian ditandai Lunas.",
-        )
+        refreshed = self.session.get(PurchaseOrder, purchase_id)
+        if refreshed is not None and refreshed.paid_amount >= refreshed.subtotal:
+            QMessageBox.information(
+                self,
+                "Pembelian lunas",
+                "Transaksi pembelian ditandai Lunas.",
+            )
+        else:
+            sisa = (
+                refreshed.subtotal - refreshed.paid_amount
+                if refreshed is not None
+                else 0
+            )
+            QMessageBox.information(
+                self,
+                "Pembayaran tercatat",
+                f"Pembayaran tercatat. Sisa hutang: {rupiah(sisa)}.",
+            )

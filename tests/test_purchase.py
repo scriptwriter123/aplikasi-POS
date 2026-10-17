@@ -14,6 +14,7 @@ from app.core.database import Base
 from app.core.exceptions import AuthorizationError, ValidationError
 from app.models import (
     Account,
+    FinancialPayment,
     Product,
     PurchaseOrder,
     PurchaseOrderItem,
@@ -322,19 +323,24 @@ def test_purchase_window_lists_demo_purchase_and_debt_summary(
     view = PurchaseView(owner, session)
 
     assert view.windowTitle() == "Belanja dan Supplier"
-    assert view.tabs.count() == 3
+    assert view.tabs.count() == 4
     assert view.tabs.tabText(0) == "Belanja"
-    assert view.tabs.tabText(1) == "Kelola Supplier"
-    assert view.tabs.tabText(2) == "Bayar Hutang"
+    assert view.tabs.tabText(1) == "Daftar Pembelian"
+    assert view.tabs.tabText(2) == "Kelola Supplier"
+    assert view.tabs.tabText(3) == "Bayar Hutang"
     label_texts = [label.text() for label in view.findChildren(QLabel)]
     assert "QTY *" in label_texts
+    assert "Jumlah DP (Rp)" in label_texts
     assert "Jumlah diterima *" not in label_texts
     assert "Tabel Hutang" in label_texts
     assert view.supplier_input.count() == 1
     assert view.product_input.count() == 1
     assert view.quantity_input.minimum() == 1
-    assert view.payment_status_input.count() == 2
+    assert view.payment_status_input.count() == 3
+    assert view.payment_status_input.itemData(2) == "DP"
     assert view.due_date_input.isEnabled() is False
+    assert view.dp_amount_input.isEnabled() is False
+    assert view.low_stock_label.text() != ""
     assert view.purchase_table.rowCount() == 1
     assert view.purchase_table.item(0, 2).text() == supplier.name
     assert view.purchase_table.item(0, 5).text() == "Tempo"
@@ -402,3 +408,226 @@ def test_belanja_quick_create_rejects_blank_name(
     assert warnings == ["Isi nama produk."]
     assert dialog.result() != QDialog.DialogCode.Accepted
     dialog.close()
+
+
+def test_record_dp_purchase_records_down_payment_and_keeps_debt(
+    purchase_session,
+):
+    session, owner, _cashier, supplier, product = purchase_session
+    service = PurchaseService(session)
+
+    purchase = service.record_purchase(
+        owner,
+        supplier_id=supplier.id,
+        product_id=product.id,
+        quantity=5,
+        unit_cost=10_000,
+        payment_status="DP",
+        due_date=date(2026, 12, 1),
+        dp_amount=20_000,
+    )
+
+    assert purchase.payment_status == "DP"
+    assert purchase.subtotal == 50_000
+    assert purchase.paid_amount == 20_000
+    assert purchase.due_date.date() == date(2026, 12, 1)
+    assert product.stock_qty == 13
+
+    payment = session.scalar(
+        select(FinancialPayment).where(
+            FinancialPayment.purchase_order_id == purchase.id
+        )
+    )
+    assert payment is not None
+    assert payment.amount == 20_000
+
+    listed = service.list_purchases(owner)
+    assert listed[0]["purchase"].payment_status == "DP"
+
+
+def test_dp_validation_requires_amount_range_and_due_date(
+    purchase_session,
+):
+    session, owner, _cashier, supplier, product = purchase_session
+    service = PurchaseService(session)
+
+    with pytest.raises(ValidationError, match="jatuh tempo wajib"):
+        service.record_purchase(
+            owner,
+            supplier_id=supplier.id,
+            product_id=product.id,
+            quantity=1,
+            unit_cost=10_000,
+            payment_status="DP",
+            due_date=None,
+            dp_amount=5_000,
+        )
+    with pytest.raises(ValidationError, match="Jumlah DP"):
+        service.record_purchase(
+            owner,
+            supplier_id=supplier.id,
+            product_id=product.id,
+            quantity=1,
+            unit_cost=10_000,
+            payment_status="DP",
+            due_date=date(2026, 12, 1),
+            dp_amount=0,
+        )
+    with pytest.raises(ValidationError, match="lebih kecil dari total"):
+        service.record_purchase(
+            owner,
+            supplier_id=supplier.id,
+            product_id=product.id,
+            quantity=1,
+            unit_cost=10_000,
+            payment_status="DP",
+            due_date=date(2026, 12, 1),
+            dp_amount=10_000,
+        )
+    with pytest.raises(ValidationError, match="hanya diisi pada status DP"):
+        service.record_purchase(
+            owner,
+            supplier_id=supplier.id,
+            product_id=product.id,
+            quantity=1,
+            unit_cost=10_000,
+            payment_status="TEMPO",
+            due_date=date(2026, 12, 1),
+            dp_amount=5_000,
+        )
+
+
+def test_partial_payments_keep_dp_status_until_fully_paid(
+    purchase_session,
+):
+    session, owner, _cashier, supplier, product = purchase_session
+    service = PurchaseService(session)
+    purchase = service.record_purchase(
+        owner,
+        supplier_id=supplier.id,
+        product_id=product.id,
+        quantity=4,
+        unit_cost=10_000,
+        payment_status="DP",
+        due_date=date(2026, 12, 5),
+        dp_amount=10_000,
+    )
+    cash = session.scalar(select(Account).where(Account.code == "1000"))
+
+    partial = service.record_payment(
+        owner, purchase.id, 15_000, cash.id, "CASH"
+    )
+    assert partial.payment_status == "DP"
+    assert partial.paid_amount == 25_000
+
+    settled = service.record_payment(
+        owner, purchase.id, 15_000, cash.id, "CASH"
+    )
+    assert settled.payment_status == "PAID"
+    assert settled.paid_amount == settled.subtotal == 40_000
+
+
+def test_purchase_form_status_block_has_three_rows_and_dp_state(
+    purchase_session,
+    qt_app,
+):
+    session, owner, _cashier, _supplier, _product = purchase_session
+    view = PurchaseView(owner, session)
+
+    assert view.payment_status_input.itemText(2) == "DP (uang muka)"
+    assert view.dp_amount_input.isEnabled() is False
+    assert view.due_date_input.isEnabled() is False
+
+    view.payment_status_input.setCurrentIndex(1)
+    assert view.due_date_input.isEnabled() is True
+    assert view.dp_amount_input.isEnabled() is False
+
+    view.payment_status_input.setCurrentIndex(2)
+    assert view.due_date_input.isEnabled() is True
+    assert view.dp_amount_input.isEnabled() is True
+
+    view.payment_status_input.setCurrentIndex(0)
+    assert view.due_date_input.isEnabled() is False
+    assert view.dp_amount_input.isEnabled() is False
+    view.close()
+
+
+def test_daftar_pembelian_tab_lists_lunas_tempo_and_dp(
+    purchase_session,
+    qt_app,
+):
+    session, owner, _cashier, supplier, product = purchase_session
+    service = PurchaseService(session)
+    service.record_purchase(
+        owner,
+        supplier_id=supplier.id,
+        product_id=product.id,
+        quantity=1,
+        unit_cost=10_000,
+        payment_status="PAID",
+        due_date=None,
+    )
+    service.record_purchase(
+        owner,
+        supplier_id=supplier.id,
+        product_id=product.id,
+        quantity=1,
+        unit_cost=10_000,
+        payment_status="TEMPO",
+        due_date=date(2026, 11, 1),
+    )
+    service.record_purchase(
+        owner,
+        supplier_id=supplier.id,
+        product_id=product.id,
+        quantity=1,
+        unit_cost=10_000,
+        payment_status="DP",
+        due_date=date(2026, 11, 2),
+        dp_amount=4_000,
+    )
+    view = PurchaseView(owner, session)
+
+    table = view.purchase_table
+    assert table.rowCount() == 3
+    statuses = {table.item(row, 5).text() for row in range(3)}
+    assert statuses == {"Lunas", "Tempo", "DP (uang muka)"}
+    sisa_values = {table.item(row, 7).text() for row in range(3)}
+    assert "Rp 6.000,00" in sisa_values
+
+    debt_rows = view.debt_table.rowCount()
+    assert debt_rows == 2
+    assert "Rp 16.000,00" in view.debt_summary.text()
+    view.close()
+
+
+def test_low_stock_clue_shows_products_under_five(purchase_session, qt_app):
+    session, owner, _cashier, _supplier, product = purchase_session
+    low = Product(
+        sku="SKU-LOW-001",
+        name="Gula Merah Kecil",
+        purchase_price=2_000,
+        selling_price=2_500,
+        stock_qty=3,
+        is_active=True,
+    )
+    empty = Product(
+        sku="SKU-LOW-002",
+        name="Kopi Batang",
+        purchase_price=1_000,
+        selling_price=1_500,
+        stock_qty=0,
+        is_active=True,
+    )
+    session.add_all([low, empty])
+    session.flush()
+    view = PurchaseView(owner, session)
+
+    text = view.low_stock_label.text()
+    assert "Clue stok menipis" in text
+    assert "Stok habis (0):" in text
+    assert "Kopi Batang" in text
+    assert "Stok rendah (< 5):" in text
+    assert "Gula Merah Kecil (SKU-LOW-001): stok 3" in text
+    assert "Beras" not in text
+    view.close()

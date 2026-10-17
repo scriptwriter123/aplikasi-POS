@@ -397,7 +397,7 @@ class PurchaseOrder(Base, TimestampMixin):
     __table_args__ = (
         CheckConstraint("subtotal >= 0", name="ck_purchase_orders_subtotal_nonnegative"),
         CheckConstraint(
-            "payment_status IN ('PAID', 'TEMPO')",
+            "payment_status IN ('PAID', 'TEMPO', 'DP')",
             name="ck_purchase_orders_payment_status",
         ),
         CheckConstraint(
@@ -406,7 +406,9 @@ class PurchaseOrder(Base, TimestampMixin):
         ),
         CheckConstraint(
             "(payment_status = 'PAID' AND paid_amount = subtotal) OR "
-            "(payment_status = 'TEMPO' AND due_date IS NOT NULL)",
+            "(payment_status = 'TEMPO' AND due_date IS NOT NULL) OR "
+            "(payment_status = 'DP' AND paid_amount > 0 "
+            "AND paid_amount < subtotal AND due_date IS NOT NULL)",
             name="ck_purchase_orders_payment_terms",
         ),
     )

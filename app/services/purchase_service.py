@@ -98,6 +98,7 @@ class PurchaseService:
         payment_status: str,
         due_date: date | None,
         payment_account_id: int | None = None,
+        dp_amount: int = 0,
     ) -> PurchaseOrder:
         self._require_owner(actor)
         if self.transaction_locked:
@@ -111,14 +112,30 @@ class PurchaseService:
             raise ValidationError("Harga modal tidak boleh negatif.")
         if unit_cost == 0:
             raise ValidationError("Harga modal pembelian harus lebih dari Rp 0.")
-        if payment_status not in {"PAID", "TEMPO"}:
-            raise ValidationError("Pilih status pembayaran Lunas atau Tempo.")
-        if payment_status == "TEMPO" and due_date is None:
+        if payment_status not in {"PAID", "TEMPO", "DP"}:
+            raise ValidationError(
+                "Pilih status pembayaran Lunas, Tempo, atau DP (uang muka)."
+            )
+        if payment_status in {"TEMPO", "DP"} and due_date is None:
             raise ValidationError(
                 "Tanggal jatuh tempo wajib untuk pembelian Tempo."
+                if payment_status == "TEMPO"
+                else "Tanggal jatuh tempo wajib untuk pembelian DP (uang muka)."
             )
         if payment_status == "PAID":
             due_date = None
+        total = quantity * unit_cost
+        if payment_status == "DP":
+            if dp_amount <= 0:
+                raise ValidationError("Jumlah DP (uang muka) harus lebih dari Rp 0.")
+            if dp_amount >= total:
+                raise ValidationError(
+                    "Jumlah DP harus lebih kecil dari total pembelian."
+                )
+        elif dp_amount:
+            raise ValidationError(
+                "Jumlah DP hanya diisi pada status DP (uang muka)."
+            )
 
         supplier = self.session.get(Supplier, supplier_id)
         if supplier is None or supplier.deleted_at is not None:
@@ -140,7 +157,6 @@ class PurchaseService:
             raise ValidationError("Data toko belum tersedia.")
 
         now = datetime.now(timezone.utc)
-        total = quantity * unit_cost
         payment_account = (
             self.session.get(Account, payment_account_id)
             if payment_account_id is not None
@@ -148,7 +164,7 @@ class PurchaseService:
                 select(Account).where(Account.code == "1000")
             )
         )
-        if payment_status == "PAID" and payment_account is None:
+        if payment_status in {"PAID", "DP"} and payment_account is None:
             raise ValidationError("Akun kas/bank untuk pembayaran tidak ditemukan.")
         order = PurchaseOrder(
             order_no=f"PO-{now:%Y%m%d}-{uuid4().hex[:8].upper()}",
@@ -220,6 +236,18 @@ class PurchaseService:
                     paid_at=now,
                 )
                 order.due_date = None
+            elif payment_status == "DP":
+                self.financial._record_document_payment(
+                    actor=actor,
+                    purchase=order,
+                    amount=dp_amount,
+                    payment_account_id=payment_account.id,
+                    payment_method=(
+                        "CASH" if payment_account.code == "1000" else "BANK"
+                    ),
+                    paid_at=now,
+                )
+                order.payment_status = "DP"
             self.session.commit()
             self.session.refresh(order)
         except Exception:

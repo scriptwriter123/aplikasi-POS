@@ -757,9 +757,10 @@ class FinancialService:
         )
         if purchase is not None:
             purchase.paid_amount += amount
-            purchase.payment_status = (
-                "PAID" if purchase.paid_amount == purchase.subtotal else "TEMPO"
-            )
+            if purchase.paid_amount == purchase.subtotal:
+                purchase.payment_status = "PAID"
+            elif purchase.payment_status != "DP":
+                purchase.payment_status = "TEMPO"
             source_type = "PURCHASE_PAYMENT"
             memo = f"Pembayaran {purchase.order_no}"
         else:

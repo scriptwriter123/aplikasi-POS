@@ -6,12 +6,14 @@ logger = logging.getLogger("pos.purchase")
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDateEdit,
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
     QFormLayout,
+    QFrame,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -194,15 +196,8 @@ class PurchaseView(QWidget):
         description.setStyleSheet("color: #a1a1aa;")
         belanja_layout.addWidget(description)
 
-        self.low_stock_label = QLabel()
-        self.low_stock_label.setWordWrap(True)
-        self.low_stock_label.setStyleSheet(
-            "color: #fdba74; background: #3a2410; padding: 8px; "
-            "border-radius: 6px;"
-        )
-        belanja_layout.addWidget(self.low_stock_label)
-
         form = QFormLayout()
+        form.setVerticalSpacing(10)
         self.supplier_input = QComboBox()
         self.product_input = QComboBox()
         self.quantity_input = QSpinBox()
@@ -230,8 +225,30 @@ class PurchaseView(QWidget):
         self.product_input.currentIndexChanged.connect(
             self._update_product_cost
         )
+        self.product_input.currentIndexChanged.connect(
+            self._update_product_tooltip
+        )
+        self.product_input.setToolTip("Pilih produk untuk melihat jumlah stok.")
+        self._all_products = []
+        for widget in (
+            self.supplier_input,
+            self.product_input,
+            self.quantity_input,
+            self.unit_cost_input,
+            self.payment_account_input,
+            self.payment_status_input,
+            self.dp_amount_input,
+            self.due_date_input,
+        ):
+            widget.setMinimumHeight(30)
 
         form.addRow("Supplier *", self.supplier_input)
+        self.low_stock_checkbox = QCheckBox("Tampilkan stok habis / menipis")
+        self.low_stock_checkbox.setToolTip(
+            "Tidak ada produk dengan stok habis atau di bawah 5."
+        )
+        self.low_stock_checkbox.toggled.connect(self._populate_product_combo)
+        form.addRow(self.low_stock_checkbox)
         product_row = QHBoxLayout()
         product_row.setSpacing(8)
         product_row.addWidget(self.product_input, 1)
@@ -253,7 +270,6 @@ class PurchaseView(QWidget):
         form.addRow("Status pembelian *", self.payment_status_input)
         form.addRow("Jumlah DP (Rp)", self.dp_amount_input)
         form.addRow("Jatuh tempo *", self.due_date_input)
-        belanja_layout.addLayout(form)
 
         actions = QHBoxLayout()
         self.record_button = QPushButton("Simpan Pembelian")
@@ -263,7 +279,20 @@ class PurchaseView(QWidget):
         actions.addWidget(self.record_button)
         actions.addWidget(self.refresh_button)
         actions.addStretch(1)
-        belanja_layout.addLayout(actions)
+
+        form_card = QFrame()
+        form_card.setObjectName("purchaseFormCard")
+        form_card.setStyleSheet(
+            "QFrame#purchaseFormCard { background: #1a1a1e; "
+            "border: 1px solid #2d2d34; border-radius: 14px; }"
+        )
+        card_layout = QVBoxLayout(form_card)
+        card_layout.setContentsMargins(20, 16, 20, 16)
+        card_layout.setSpacing(14)
+        card_layout.addLayout(form)
+        card_layout.addLayout(actions)
+        card_layout.addStretch(1)
+        belanja_layout.addWidget(form_card, 1)
 
         if self.read_only:
             banner = QLabel(
@@ -496,12 +525,9 @@ class PurchaseView(QWidget):
                 f"{supplier.name} ({supplier.code})",
                 supplier.id,
             )
-        self.product_input.clear()
-        for product in products:
-            self.product_input.addItem(
-                f"{product.name} ({product.sku})",
-                product.id,
-            )
+        self._all_products = products
+        self._update_low_stock_checkbox(products)
+        self._populate_product_combo()
         self.payment_account_input.clear()
         for account in payment_accounts:
             self.payment_account_input.addItem(
@@ -509,7 +535,6 @@ class PurchaseView(QWidget):
                 account.id,
             )
         self._update_product_cost()
-        self._update_low_stock_clue(products)
 
         self.purchase_table.setRowCount(len(purchases))
         self.purchase_ids = []
@@ -589,36 +614,80 @@ class PurchaseView(QWidget):
             bool(self.supplier_input.count()) and not self.read_only
         )
 
-    def _update_low_stock_clue(self, products):
+    def _update_low_stock_checkbox(self, products):
         low_stock = [product for product in products if product.stock_qty < 5]
-        if not low_stock:
-            self.low_stock_label.setText(
-                "Clue stok: semua produk aktif punya stok aman (>= 5)."
-            )
-            return
-        out_of_stock = [
-            product for product in low_stock if product.stock_qty == 0
-        ]
-        running_low = [
-            product for product in low_stock if product.stock_qty > 0
-        ]
-        sections = [
-            "Clue stok menipis — pertimbangkan untuk dibelanjakan "
-            "di Catat Belanja:"
-        ]
-        if out_of_stock:
-            details = "\n".join(
-                f"{product.name} ({product.sku})"
-                for product in out_of_stock
-            )
-            sections.append(f"Stok habis (0):\n{details}")
-        if running_low:
+        if low_stock:
             details = "\n".join(
                 f"{product.name} ({product.sku}): stok {product.stock_qty}"
-                for product in running_low
+                for product in low_stock
             )
-            sections.append(f"Stok rendah (< 5):\n{details}")
-        self.low_stock_label.setText("\n\n".join(sections))
+            self.low_stock_checkbox.setEnabled(True)
+            self.low_stock_checkbox.setToolTip(
+                "Filter dropdown Produk ke daftar stok habis / menipis:\n"
+                + details
+            )
+        else:
+            if self.low_stock_checkbox.isChecked():
+                self.low_stock_checkbox.setChecked(False)
+            self.low_stock_checkbox.setEnabled(False)
+            self.low_stock_checkbox.setToolTip(
+                "Tidak ada produk dengan stok habis atau di bawah 5."
+            )
+
+    def _populate_product_combo(self, *_args):
+        products = self._all_products
+        if self.low_stock_checkbox.isChecked():
+            products = [
+                product for product in products if product.stock_qty < 5
+            ]
+        previous_id = self.product_input.currentData()
+        self.product_input.clear()
+        for product in products:
+            self.product_input.addItem(
+                f"{product.name} ({product.sku})",
+                product.id,
+            )
+            self.product_input.setItemData(
+                self.product_input.count() - 1,
+                f"{product.name} ({product.sku})\n"
+                f"{self._stock_hint(product.stock_qty)}",
+                Qt.ToolTipRole,
+            )
+        if previous_id is not None:
+            index = self.product_input.findData(previous_id)
+            if index >= 0:
+                self.product_input.setCurrentIndex(index)
+
+    @staticmethod
+    def _stock_hint(stock_qty: int) -> str:
+        if stock_qty == 0:
+            status = "STOK HABIS"
+        elif stock_qty < 5:
+            status = "stok menipis"
+        else:
+            status = "stok aman"
+        return f"Jumlah stok: {stock_qty} ({status})"
+
+    def _update_product_tooltip(self, _index: int = -1):
+        product_id = self.product_input.currentData()
+        if product_id is None:
+            self.product_input.setToolTip(
+                "Pilih produk untuk melihat jumlah stok."
+            )
+            return
+        product = next(
+            (item for item in self._all_products if item.id == product_id),
+            None,
+        )
+        if product is None:
+            product = self.service.get_product(self.actor, product_id)
+        if product is None:
+            self.product_input.setToolTip("")
+            return
+        self.product_input.setToolTip(
+            f"{product.name} ({product.sku})\n"
+            f"{self._stock_hint(product.stock_qty)}"
+        )
 
     def _update_due_date_state(self, _index: int = -1):
         status = self.payment_status_input.currentData()

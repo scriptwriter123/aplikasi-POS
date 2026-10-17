@@ -5,6 +5,7 @@ from decimal import Decimal
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QDialog, QLabel, QMessageBox
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
@@ -340,7 +341,7 @@ def test_purchase_window_lists_demo_purchase_and_debt_summary(
     assert view.payment_status_input.itemData(2) == "DP"
     assert view.due_date_input.isEnabled() is False
     assert view.dp_amount_input.isEnabled() is False
-    assert view.low_stock_label.text() != ""
+    assert view.low_stock_checkbox.isEnabled() is False
     assert view.purchase_table.rowCount() == 1
     assert view.purchase_table.item(0, 2).text() == supplier.name
     assert view.purchase_table.item(0, 5).text() == "Tempo"
@@ -601,7 +602,7 @@ def test_daftar_pembelian_tab_lists_lunas_tempo_and_dp(
     view.close()
 
 
-def test_low_stock_clue_shows_products_under_five(purchase_session, qt_app):
+def test_low_stock_checkbox_filters_product_dropdown(purchase_session, qt_app):
     session, owner, _cashier, _supplier, product = purchase_session
     low = Product(
         sku="SKU-LOW-001",
@@ -623,11 +624,55 @@ def test_low_stock_clue_shows_products_under_five(purchase_session, qt_app):
     session.flush()
     view = PurchaseView(owner, session)
 
-    text = view.low_stock_label.text()
-    assert "Clue stok menipis" in text
-    assert "Stok habis (0):" in text
-    assert "Kopi Batang" in text
-    assert "Stok rendah (< 5):" in text
-    assert "Gula Merah Kecil (SKU-LOW-001): stok 3" in text
-    assert "Beras" not in text
+    assert view.low_stock_checkbox.isEnabled() is True
+    tooltip = view.low_stock_checkbox.toolTip()
+    assert "Gula Merah Kecil (SKU-LOW-001): stok 3" in tooltip
+    assert "Kopi Batang (SKU-LOW-002): stok 0" in tooltip
+    assert view.product_input.count() == 3
+
+    view.low_stock_checkbox.setChecked(True)
+    filtered = {
+        view.product_input.itemText(index)
+        for index in range(view.product_input.count())
+    }
+    assert len(filtered) == 2
+    assert any("Gula Merah Kecil" in text for text in filtered)
+    assert any("Kopi Batang" in text for text in filtered)
+    assert all("Beras" not in text for text in filtered)
+
+    view.low_stock_checkbox.setChecked(False)
+    assert view.product_input.count() == 3
+    view.close()
+
+
+def test_product_dropdown_shows_stock_hint_on_hover_and_focus(
+    purchase_session,
+    qt_app,
+):
+    session, owner, _cashier, _supplier, product = purchase_session
+    low = Product(
+        sku="SKU-LOW-010",
+        name="Teh Poci Kecil",
+        purchase_price=1_000,
+        selling_price=1_500,
+        stock_qty=2,
+        is_active=True,
+    )
+    session.add(low)
+    session.flush()
+    view = PurchaseView(owner, session)
+
+    for index in range(view.product_input.count()):
+        hint = view.product_input.itemData(index, Qt.ToolTipRole)
+        assert hint and "Jumlah stok" in hint
+    assert f"Jumlah stok: {product.stock_qty} (stok aman)" in (
+        view.product_input.toolTip()
+    )
+
+    view.low_stock_checkbox.setChecked(True)
+    assert view.product_input.count() == 1
+    item_hint = view.product_input.itemData(0, Qt.ToolTipRole)
+    assert "Teh Poci Kecil" in item_hint
+    assert "Jumlah stok: 2 (stok menipis)" in item_hint
+    assert "Jumlah stok: 2 (stok menipis)" in view.product_input.toolTip()
     view.close()

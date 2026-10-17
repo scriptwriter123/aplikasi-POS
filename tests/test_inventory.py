@@ -132,10 +132,16 @@ def test_manajemen_toko_view_has_tabs(user_session: Session, qt_app):
     assert tabs, "Jendela Manajemen Toko harus memakai tab"
     assert [tabs[0].tabText(i) for i in range(tabs[0].count())] == [
         "Pengaturan Toko",
+        "Modal Awal",
         "Tambah Karyawan",
         "Inventaris Toko",
         "Seting Pembayaran Kasir",
     ]
+    # Tab "Modal Awal" memakai FinancialView utuh; chrome jendelanya
+    # (tombol kembali & judul) disembunyikan karena tab punya judul sendiri.
+    assert tabs[0].widget(1) is view.financial_view
+    assert view.financial_view.back_button.isHidden()
+    assert view.financial_view.heading_label.isHidden()
     view.close()
 
 

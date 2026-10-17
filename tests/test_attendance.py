@@ -146,21 +146,6 @@ class _StubSales(QWidget):
         self.refresh_count += 1
 
 
-class _StubFinancial(QWidget):
-    def __init__(self):
-        super().__init__()
-        self.back_button = QPushButton("back")
-        self.heading_label = QLabel("Keuangan")
-        self.refresh_view_count = 0
-        self.refresh_report_count = 0
-
-    def refresh_view(self):
-        self.refresh_view_count += 1
-
-    def refresh_report(self):
-        self.refresh_report_count += 1
-
-
 class _StubAttendance(QWidget):
     def __init__(self):
         super().__init__()
@@ -172,11 +157,9 @@ class _StubAttendance(QWidget):
 
 def test_report_center_tabs(qt_app):
     sales = _StubSales()
-    financial = _StubFinancial()
     attendance = _StubAttendance()
     center = ReportCenterView(
         sales_view=sales,
-        financial_view=financial,
         attendance_view=attendance,
     )
     center.resize(1000, 700)
@@ -185,7 +168,6 @@ def test_report_center_tabs(qt_app):
 
     assert [center.tabs.tabText(i) for i in range(center.tabs.count())] == [
         "Penjualan",
-        "Keuangan",
         "Absensi Karyawan",
     ]
     assert center.back_button is not None
@@ -193,16 +175,10 @@ def test_report_center_tabs(qt_app):
     # Header anak view disembunyikan di dalam tab.
     assert not sales.back_button.isVisible()
     assert not sales.heading_label.isVisible()
-    assert not financial.heading_label.isVisible()
-
-    center.show_tab("Keuangan")
-    qt_app.processEvents()
-    assert center.tabs.currentIndex() == ReportCenterView.TAB_FINANCIAL
-    assert financial.refresh_view_count >= 1
-    assert financial.refresh_report_count >= 1
 
     center.show_tab("Absensi Karyawan")
     qt_app.processEvents()
+    assert center.tabs.currentIndex() == ReportCenterView.TAB_ATTENDANCE
     assert attendance.refresh_count == 1
 
     center.show_tab("Penjualan")

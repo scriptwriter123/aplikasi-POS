@@ -24,6 +24,7 @@ from app.services.inventory_service import InventoryService
 from app.services.payment_settings_service import PaymentSettingsService
 from app.services.store_settings_service import StoreSettingsService
 from app.services.user_management_service import UserManagementService
+from app.ui.views.financial_view import FinancialView
 from app.ui.views.store_settings_view import StoreSettingsView
 from app.ui.widgets import create_dashboard_back_button
 
@@ -36,6 +37,8 @@ class UserManagementView(QWidget):
         actor,
         user_management: UserManagementService,
         parent=None,
+        *,
+        read_only: bool = False,
     ):
         super().__init__(parent)
         self.actor = actor
@@ -55,8 +58,8 @@ class UserManagementView(QWidget):
         header.addStretch(1)
         root.addLayout(header)
 
-        # Konten jendela dibungkus tab: Pengaturan Toko, Tambah Karyawan,
-        # Inventaris Toko, dan Seting Pembayaran Kasir.
+        # Konten jendela dibungkus tab: Pengaturan Toko, Modal Awal,
+        # Tambah Karyawan, Inventaris Toko, dan Seting Pembayaran Kasir.
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet(
             "QTabWidget::pane { border: 1px solid #3f3f46; "
@@ -201,7 +204,9 @@ class UserManagementView(QWidget):
         self.tabs.addTab(self._inventory_page, "Inventaris Toko")
 
         # Pengaturan toko digabung ke jendela ini: tab pertama
-        # "Pengaturan Toko", tab terakhir "Seting Pembayaran Kasir".
+        # "Pengaturan Toko", lalu "Modal Awal" (aktivasi pembukuan &
+        # saldo awal, dipindahkan dari jendela Laporan), tab terakhir
+        # "Seting Pembayaran Kasir".
         self.store_settings = StoreSettingsView(
             actor,
             StoreSettingsService(user_management.session),
@@ -213,12 +218,34 @@ class UserManagementView(QWidget):
         self.store_settings.hide()
         self.store_settings.setAttribute(Qt.WA_TransparentForMouseEvents)
         self.tabs.insertTab(0, self.store_settings.store_tab, "Pengaturan Toko")
+
+        # Tab "Modal Awal": tampilan jendela penuh dipakai apa adanya,
+        # hanya chrome-nya (tombol kembali & judul jendela) yang
+        # disembunyikan karena tab sudah punya judul sendiri.
+        self.financial_view = FinancialView(
+            actor, user_management.session, read_only=read_only
+        )
+        self.financial_view.back_button.hide()
+        self.financial_view.heading_label.hide()
+        self.tabs.insertTab(1, self.financial_view, "Modal Awal")
+
         self.tabs.addTab(
             self.store_settings.payment_tab, "Seting Pembayaran Kasir"
         )
+        self.tabs.currentChanged.connect(self._on_tab_changed)
 
         self.refresh_users()
         self.refresh_inventory()
+
+    def _on_tab_changed(self, index: int):
+        if 0 <= index < self.tabs.count() and self.tabs.widget(
+            index
+        ) is getattr(self, "financial_view", None):
+            self.refresh_financial()
+
+    def refresh_financial(self):
+        self.financial_view.refresh_view()
+        self.financial_view.refresh_report()
 
     def refresh_users(self):
         self._exit_edit_mode()

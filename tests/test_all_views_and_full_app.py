@@ -170,9 +170,12 @@ def test_full_owner_navigation_and_all_views(qt_application: QApplication, full_
     assert window.sales_report_view.report_type == "sales"
     window.sales_report_view.refresh_report()
 
-    # 3. Dashboard -> Financial Report View
+    # 3. Financial report (Modal Awal di jendela Manajemen Toko)
     window.show_financial_report()
-    assert isinstance(window.stack.currentWidget(), ReportCenterView)
+    assert isinstance(window.stack.currentWidget(), UserManagementView)
+    assert window.user_management_view.tabs.currentWidget() is (
+        window.financial_view
+    )
     assert window.financial_view.service.is_initialized()
 
     # 4. Dashboard -> Master Data View

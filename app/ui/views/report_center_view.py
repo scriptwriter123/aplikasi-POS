@@ -11,17 +11,16 @@ from app.ui.widgets import create_dashboard_back_button
 
 
 class ReportCenterView(QWidget):
-    """Jendela "Laporan": tab Penjualan, Keuangan, dan Absensi Karyawan.
+    """Jendela "Laporan": tab Penjualan dan Absensi Karyawan.
 
-    Membungkus ReportView (Penjualan), FinancialView (Keuangan), dan
-    AttendanceView (Absensi) yang dibangun di luar — instance yang sama
-    tetap dipegang MainWindow sehingga akses langsung ke view anak masih
-    berfungsi.
+    Membungkus ReportView (Penjualan) dan AttendanceView (Absensi) yang
+    dibangun di luar — instance yang sama tetap dipegang MainWindow
+    sehingga akses langsung ke view anak masih berfungsi. Tab Keuangan
+    (Modal Awal) dipindahkan ke jendela Manajemen Toko.
     """
 
     TAB_SALES = 0
-    TAB_FINANCIAL = 1
-    TAB_ATTENDANCE = 2
+    TAB_ATTENDANCE = 1
 
     back_requested = Signal()
 
@@ -29,13 +28,11 @@ class ReportCenterView(QWidget):
         self,
         *,
         sales_view: QWidget,
-        financial_view: QWidget,
         attendance_view: QWidget,
         parent=None,
     ):
         super().__init__(parent)
         self.sales_view = sales_view
-        self.financial_view = financial_view
         self.attendance_view = attendance_view
 
         root = QVBoxLayout(self)
@@ -54,7 +51,7 @@ class ReportCenterView(QWidget):
 
         # Header internal tiap view disembunyikan; jendela ini punya
         # judul dan tombol kembali sendiri.
-        for view in (sales_view, financial_view, attendance_view):
+        for view in (sales_view, attendance_view):
             back = getattr(view, "back_button", None)
             if back is not None:
                 back.hide()
@@ -73,7 +70,6 @@ class ReportCenterView(QWidget):
             "border-bottom: 2px solid #007acc; }"
         )
         self.tabs.addTab(sales_view, "Penjualan")
-        self.tabs.addTab(financial_view, "Keuangan")
         self.tabs.addTab(attendance_view, "Absensi Karyawan")
         self.tabs.currentChanged.connect(self._on_tab_changed)
         root.addWidget(self.tabs, 1)
@@ -101,8 +97,5 @@ class ReportCenterView(QWidget):
     def _refresh_tab(self, index: int) -> None:
         if index == self.TAB_SALES:
             self.sales_view.refresh_report()
-        elif index == self.TAB_FINANCIAL:
-            self.financial_view.refresh_view()
-            self.financial_view.refresh_report()
         elif index == self.TAB_ATTENDANCE:
             self.attendance_view.refresh()

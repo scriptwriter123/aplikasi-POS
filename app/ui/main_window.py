@@ -17,7 +17,6 @@ from app.services.user_management_service import UserManagementService
 from app.ui.views.attendance_view import AttendanceView
 from app.ui.views.cashier_view import CashierView
 from app.ui.views.dashboard_view import DashboardView
-from app.ui.views.financial_view import FinancialView
 from app.ui.views.master_data_view import MasterDataView
 from app.ui.views.purchase_view import PurchaseView
 from app.ui.views.report_center_view import ReportCenterView
@@ -92,12 +91,16 @@ class MainWindow(QMainWindow):
             self.user_management_view = UserManagementView(
                 user,
                 self.user_management,
+                read_only=self.read_only,
             )
             self.user_management_view.back_requested.connect(
                 self.show_dashboard
             )
             # Pengaturan toko & pembayaran kasir menempel sebagai tab
-            # pertama & terakhir di dalam jendela Manajemen Toko.
+            # pertama & terakhir di dalam jendela Manajemen Toko; tab
+            # "Modal Awal" (aktivasi pembukuan) menempel sebagai tab
+            # kedua. Alias agar akses langsung dari MainWindow tetap ada.
+            self.financial_view = self.user_management_view.financial_view
             self.store_settings_view = self.user_management_view.store_settings
             self.store_settings_view.settings_saved.connect(
                 self._store_settings_saved
@@ -108,21 +111,15 @@ class MainWindow(QMainWindow):
                 "sales",
             )
             self.sales_report_view.back_requested.connect(self.show_dashboard)
-            self.financial_view = FinancialView(
-                user,
-                self.user_management.session,
-                read_only=self.read_only,
-            )
-            self.financial_view.back_requested.connect(self.show_dashboard)
             self.attendance_view = AttendanceView(
                 user,
                 self.user_management.session,
             )
-            # Jendela "Laporan" gabungan: Penjualan, Keuangan, Absensi
-            # Karyawan (tab); ketiganya memakai instance yang sama.
+            # Jendela "Laporan" gabungan: Penjualan & Absensi Karyawan
+            # (tab); keduanya memakai instance yang sama. Tab Keuangan
+            # (Modal Awal) pindah ke jendela Manajemen Toko.
             self.report_center = ReportCenterView(
                 sales_view=self.sales_report_view,
-                financial_view=self.financial_view,
                 attendance_view=self.attendance_view,
             )
             self.report_center.back_requested.connect(self.show_dashboard)
@@ -222,6 +219,13 @@ class MainWindow(QMainWindow):
         self.user_management_view.refresh_users()
         self.user_management_view.refresh_inventory()
         self.user_management_view.store_settings.reload_settings()
+        # Jendela terbuka saat tab terakhir terbuka adalah Modal Awal:
+        # sinyal currentChanged tidak akan menyala, jadi refresh manual.
+        if (
+            self.user_management_view.tabs.currentWidget()
+            is self.user_management_view.financial_view
+        ):
+            self.user_management_view.refresh_financial()
         self.stack.setCurrentWidget(self.user_management_view)
 
     def show_dashboard(self):
@@ -234,9 +238,15 @@ class MainWindow(QMainWindow):
             self.stack.setCurrentWidget(self.report_center)
 
     def show_financial_report(self):
+        # Tab Keuangan sudah pindah ke jendela Manajemen Toko sebagai
+        # tab "Modal Awal". Saat pindah tab, refresh terpicu sinyal
+        # currentChanged; saat sudah di tab yang sama, refresh dilakukan
+        # show_user_management di atas.
         if self.user.role.name.upper() == "OWNER":
-            self.report_center.show_tab("Keuangan")
-            self.stack.setCurrentWidget(self.report_center)
+            self.show_user_management()
+            self.user_management_view.tabs.setCurrentWidget(
+                self.user_management_view.financial_view
+            )
 
     def show_report_center(self):
         if self.user.role.name.upper() == "OWNER":

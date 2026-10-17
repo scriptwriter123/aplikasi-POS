@@ -432,8 +432,11 @@ def test_owner_dashboard_and_staff_sales_routing(
     owner_window.stack.currentWidget().back_button.click()
     assert owner_window.stack.currentWidget() is owner_window.dashboard
     owner_window.dashboard.financial_report_requested.emit()
-    assert isinstance(owner_window.stack.currentWidget(), ReportCenterView)
-    assert owner_window.windowTitle() == "POS Retail — Laporan"
+    assert isinstance(owner_window.stack.currentWidget(), UserManagementView)
+    assert owner_window.windowTitle() == "POS Retail — Manajemen Toko"
+    assert owner_window.user_management_view.tabs.currentWidget() is (
+        owner_window.financial_view
+    )
     owner_window.stack.currentWidget().back_button.click()
     assert owner_window.stack.currentWidget() is owner_window.dashboard
     owner_window.dashboard.master_data_requested.emit()

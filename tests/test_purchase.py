@@ -1,5 +1,6 @@
 import os
 from datetime import date
+from decimal import Decimal
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -23,6 +24,7 @@ from app.models import (
     User,
 )
 from app.services.financial_service import FinancialService
+from app.services.bulk_pricing_service import BulkPricingService
 from app.services.master_data_service import MasterDataService
 from app.services.purchase_service import PurchaseService
 from app.ui.views.purchase_view import NewProductDialog, PurchaseView
@@ -168,6 +170,90 @@ def test_record_paid_purchase_is_fully_settled(
     assert purchase.payment_status == "PAID"
     assert purchase.paid_amount == purchase.subtotal == 18_000
     assert purchase.due_date is None
+
+
+def test_purchase_price_rise_raises_selling_price_keeping_margin(
+    purchase_session,
+):
+    session, owner, _cashier, supplier, product = purchase_session
+    assert product.purchase_price == 10_000
+    assert product.selling_price == 12_000
+
+    PurchaseService(session).record_purchase(
+        owner,
+        supplier_id=supplier.id,
+        product_id=product.id,
+        quantity=5,
+        unit_cost=12_000,
+        payment_status="PAID",
+        due_date=None,
+    )
+
+    assert product.purchase_price == 12_000
+    assert product.selling_price == 14_400
+
+
+def test_purchase_price_drop_keeps_selling_price(purchase_session):
+    session, owner, _cashier, supplier, product = purchase_session
+
+    PurchaseService(session).record_purchase(
+        owner,
+        supplier_id=supplier.id,
+        product_id=product.id,
+        quantity=5,
+        unit_cost=9_000,
+        payment_status="PAID",
+        due_date=None,
+    )
+
+    assert product.purchase_price == 9_000
+    assert product.selling_price == 12_000
+
+
+def test_price_rise_updates_fixed_and_percent_special_prices(
+    purchase_session,
+):
+    session, owner, _cashier, supplier, product = purchase_session
+    bulk = BulkPricingService(session)
+    bulk.save_rules(
+        owner,
+        product.id,
+        [
+            {
+                "quantity_threshold": 2,
+                "discount_percent": Decimal("10"),
+                "special_price": 10_800,
+                "pricing_mode": "PRICE",
+            },
+            {
+                "quantity_threshold": 5,
+                "discount_percent": Decimal("10"),
+                "special_price": 0,
+                "pricing_mode": "PERCENT",
+            },
+        ],
+    )
+
+    PurchaseService(session).record_purchase(
+        owner,
+        supplier_id=supplier.id,
+        product_id=product.id,
+        quantity=5,
+        unit_cost=12_000,
+        payment_status="PAID",
+        due_date=None,
+    )
+
+    assert product.selling_price == 14_400
+    fixed, percent = bulk.rules_for_product(product.id)
+    assert fixed.pricing_mode == "PRICE"
+    assert fixed.special_price == 12_960
+    assert fixed.discount_percent == Decimal("10.00")
+    assert percent.pricing_mode == "PERCENT"
+    assert percent.discount_percent == Decimal("10")
+    assert percent.special_price == 12_960
+    assert bulk.unit_price(product, 2) == 12_960
+    assert bulk.unit_price(product, 1) == 14_400
 
 
 def test_tempo_purchase_can_be_marked_paid_and_no_longer_counts_as_debt(

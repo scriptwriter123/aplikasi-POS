@@ -185,7 +185,9 @@ class PurchaseView(QWidget):
 
         description = QLabel(
             "Catat barang yang sudah diterima. Pembelian Tempo menjadi hutang "
-            "sampai jatuh tempo; pembelian Lunas langsung tercatat lunas."
+            "sampai jatuh tempo; pembelian Lunas langsung tercatat lunas. "
+            "Bila harga modal beli naik, harga jual dan harga spesial aktif "
+            "otomatis menyesuaikan (margin % tetap; tidak pernah turun)."
         )
         description.setWordWrap(True)
         description.setStyleSheet("color: #a1a1aa;")
@@ -575,6 +577,8 @@ class PurchaseView(QWidget):
             if payment_status == "TEMPO"
             else None
         )
+        product = self.session.get(Product, product_id)
+        selling_before = product.selling_price if product is not None else None
         try:
             purchase = self.service.record_purchase(
                 self.actor,
@@ -600,12 +604,16 @@ class PurchaseView(QWidget):
             return
 
         self.refresh_data()
-        QMessageBox.information(
-            self,
-            "Pembelian tersimpan",
+        message = (
             f"Pembelian {purchase.order_no} tersimpan. "
-            f"Total: {rupiah(purchase.subtotal)}",
+            f"Total: {rupiah(purchase.subtotal)}"
         )
+        if product is not None and product.selling_price != selling_before:
+            message += (
+                f" Harga jual diperbarui: {rupiah(selling_before)} → "
+                f"{rupiah(product.selling_price)}."
+            )
+        QMessageBox.information(self, "Pembelian tersimpan", message)
 
     def _record_selected_payment(self):
         row = self.debt_table.currentRow()

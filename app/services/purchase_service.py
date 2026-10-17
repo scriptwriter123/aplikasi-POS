@@ -11,6 +11,7 @@ from app.core.exceptions import (
 )
 from app.models import Account
 from app.models import (
+    BulkPriceRule,
     Product,
     PurchaseOrder,
     PurchaseOrderItem,
@@ -19,6 +20,7 @@ from app.models import (
     Supplier,
     User,
 )
+from app.services.bulk_pricing_service import BulkPricingService
 from app.services.financial_service import FinancialService
 
 
@@ -165,8 +167,21 @@ class PurchaseService:
             paid_amount=0,
         )
         stock_before = product.stock_qty
+        previous_cost = product.purchase_price
+        previous_selling = product.selling_price
         product.stock_qty += quantity
         product.purchase_price = unit_cost
+        if (
+            unit_cost > previous_cost
+            and previous_cost > 0
+            and previous_selling > 0
+        ):
+            updated_selling = (previous_selling * unit_cost) // previous_cost
+            if updated_selling > previous_selling:
+                product.selling_price = updated_selling
+                self._follow_special_prices(
+                    product, previous_selling, updated_selling
+                )
         self.session.add(order)
         try:
             self.session.flush()
@@ -211,6 +226,30 @@ class PurchaseService:
             self.session.rollback()
             raise
         return order
+
+    def _follow_special_prices(
+        self,
+        product: Product,
+        old_selling: int,
+        new_selling: int,
+    ) -> None:
+        rules = self.session.scalars(
+            select(BulkPriceRule).where(BulkPriceRule.product_id == product.id)
+        )
+        for rule in rules:
+            if rule.pricing_mode == "PRICE":
+                updated = (rule.special_price * new_selling) // old_selling
+                if rule.special_price < updated < new_selling:
+                    rule.special_price = updated
+                    rule.discount_percent = (
+                        BulkPricingService.discount_percent_for_price(
+                            new_selling, updated
+                        )
+                    )
+            else:
+                rule.special_price = BulkPricingService.special_price(
+                    new_selling, rule.discount_percent
+                )
 
     def mark_paid(self, actor: User, purchase_id: int) -> PurchaseOrder:
         self._require_owner(actor)

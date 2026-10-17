@@ -161,6 +161,18 @@ def test_user_management_view_shows_free_text_bagian_input(
     view.close()
 
 
+def test_store_settings_controller_hidden_and_click_through(
+    user_session: Session,
+    qt_app,
+):
+    owner = make_user(user_session, "owner-overlay", "OWNER")
+    view = UserManagementView(owner, make_service(user_session))
+
+    assert view.store_settings.isHidden()
+    assert view.store_settings.testAttribute(Qt.WA_TransparentForMouseEvents)
+    view.close()
+
+
 def test_owner_can_update_user(user_session: Session):
     owner = make_user(user_session, "owner", "OWNER")
     staff = make_user(user_session, "kasir01", "CASHIER")
@@ -406,7 +418,9 @@ def test_owner_dashboard_and_staff_sales_routing(
     assert owner_window.windowTitle() == "POS Retail — Belanja dan Supplier"
     assert owner_window.stack.currentWidget().supplier_input is not None
     assert owner_window.stack.currentWidget().product_input is not None
-    owner_window.purchase_view.tabs.setCurrentIndex(1)
+    owner_window.purchase_view.tabs.setCurrentWidget(
+        owner_window.supplier_view
+    )
     assert (
         owner_window.purchase_view.tabs.currentWidget()
         is owner_window.supplier_view

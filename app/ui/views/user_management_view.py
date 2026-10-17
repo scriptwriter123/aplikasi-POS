@@ -207,7 +207,11 @@ class UserManagementView(QWidget):
             StoreSettingsService(user_management.session),
             payment_service=PaymentSettingsService(user_management.session),
         )
+        # Controller hanya pemilik sinyal/service: jangan sampai menjadi
+        # overlay (0,0,640,480) yang menelan semua klik mouse di jendela.
         self.store_settings.setParent(self)
+        self.store_settings.hide()
+        self.store_settings.setAttribute(Qt.WA_TransparentForMouseEvents)
         self.tabs.insertTab(0, self.store_settings.store_tab, "Pengaturan Toko")
         self.tabs.addTab(
             self.store_settings.payment_tab, "Seting Pembayaran Kasir"

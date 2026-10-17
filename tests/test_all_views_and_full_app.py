@@ -38,7 +38,6 @@ from app.ui.views.license_view import LicenseView
 from app.ui.views.login_view import LoginView
 from app.ui.views.master_data_view import MasterDataView
 from app.ui.views.purchase_view import PurchaseView
-from app.ui.views.store_settings_view import StoreSettingsView
 from app.ui.views.user_management_view import UserManagementView
 
 
@@ -182,10 +181,13 @@ def test_full_owner_navigation_and_all_views(qt_application: QApplication, full_
     window.master_data_view.refresh_products()
     assert window.master_data_view.product_table.rowCount() >= 2
 
-    # 5. Dashboard -> Store Settings View
+    # 5. Dashboard -> Manajemen Toko (tab Pengaturan Toko)
     window.show_store_settings()
-    assert isinstance(window.stack.currentWidget(), StoreSettingsView)
+    assert isinstance(window.stack.currentWidget(), UserManagementView)
     assert window.store_settings_view.name_input.text() == "Toko Super Mart"
+    assert window.user_management_view.tabs.currentWidget() is (
+        window.store_settings_view.store_tab
+    )
 
     # 6. Dashboard -> Suppliers (tab Kelola Supplier dalam jendela Belanja)
     window.show_suppliers()

@@ -23,7 +23,6 @@ from app.ui.views.report_center_view import ReportCenterView
 from app.ui.views.login_view import LoginView
 from app.ui.views.master_data_view import MasterDataView
 from app.ui.views.purchase_view import PurchaseView
-from app.ui.views.store_settings_view import StoreSettingsView
 from app.ui.widgets import COPYRIGHT_CAPTION
 from app.ui.views.user_management_view import UserManagementView
 
@@ -428,8 +427,11 @@ def test_owner_dashboard_and_staff_sales_routing(
     owner_window.stack.currentWidget().back_requested.emit()
     assert owner_window.stack.currentWidget() is owner_window.dashboard
     owner_window.dashboard.store_settings_requested.emit()
-    assert isinstance(owner_window.stack.currentWidget(), StoreSettingsView)
-    assert owner_window.windowTitle() == "POS Retail — Pengaturan Toko"
+    assert isinstance(owner_window.stack.currentWidget(), UserManagementView)
+    assert owner_window.windowTitle() == "POS Retail — Manajemen Toko"
+    assert owner_window.user_management_view.tabs.currentWidget() is (
+        owner_window.store_settings_view.store_tab
+    )
     owner_window.stack.currentWidget().back_button.click()
     assert owner_window.stack.currentWidget() is owner_window.dashboard
     owner_window.dashboard.logout_button.click()
@@ -506,7 +508,7 @@ def test_owner_dashboard_fits_all_menu_cards_without_dashboard_heading(
     dashboard.show()
     qt_app.processEvents()
 
-    assert dashboard.menu_grid.count() == 6
+    assert dashboard.menu_grid.count() == 5
     assert dashboard.menu_grid.columnCount() == 3
     assert all(
         dashboard.menu_grid.itemAt(index).widget().minimumHeight() == 125

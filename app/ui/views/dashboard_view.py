@@ -109,7 +109,8 @@ class DashboardView(QWidget):
             self.menu_grid.addWidget(
                 self._create_card(
                     "Manajemen Toko",
-                    "Kelola pengguna dan inventaris toko.",
+                    "Kelola pengguna, inventaris, pengaturan toko, "
+                    "dan pembayaran kasir.",
                     "Kelola Toko",
                     self.manage_users_requested.emit,
                 ),
@@ -138,16 +139,6 @@ class DashboardView(QWidget):
             )
             self.menu_grid.addWidget(
                 self._create_card(
-                    "Pengaturan",
-                    "Atur nama, slogan, alamat, WhatsApp, dan logo toko.",
-                    "Pengaturan",
-                    self.store_settings_requested.emit,
-                ),
-                1,
-                0,
-            )
-            self.menu_grid.addWidget(
-                self._create_card(
                     "Belanja dan Supplier",
                     "Catat barang masuk, stok, harga modal, dan status pembayaran; "
                     "kelola data pemasok.",
@@ -155,7 +146,7 @@ class DashboardView(QWidget):
                     self.suppliers_requested.emit,
                 ),
                 1,
-                1,
+                0,
             )
             self.menu_grid.addWidget(
                 self._create_card(
@@ -168,7 +159,7 @@ class DashboardView(QWidget):
                     accent_hover="#d97706",
                 ),
                 1,
-                2,
+                1,
             )
         else:
             self.menu_grid.addWidget(

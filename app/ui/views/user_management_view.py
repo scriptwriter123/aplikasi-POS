@@ -21,7 +21,10 @@ from PySide6.QtWidgets import (
 
 from app.core.exceptions import AuthorizationError, ValidationError
 from app.services.inventory_service import InventoryService
+from app.services.payment_settings_service import PaymentSettingsService
+from app.services.store_settings_service import StoreSettingsService
 from app.services.user_management_service import UserManagementService
+from app.ui.views.store_settings_view import StoreSettingsView
 from app.ui.widgets import create_dashboard_back_button
 
 
@@ -43,16 +46,17 @@ class UserManagementView(QWidget):
         root.setSpacing(16)
 
         header = QHBoxLayout()
-        back_button = create_dashboard_back_button(self)
-        back_button.clicked.connect(self.back_requested.emit)
+        self.back_button = create_dashboard_back_button(self)
+        self.back_button.clicked.connect(self.back_requested.emit)
         title = QLabel("Manajemen Toko")
         title.setStyleSheet("font-size: 25px; font-weight: 700; color: #ffffff;")
-        header.addWidget(back_button)
+        header.addWidget(self.back_button)
         header.addWidget(title)
         header.addStretch(1)
         root.addLayout(header)
 
-        # Konten jendela dibungkus tab: Pengguna & Inventaris Toko.
+        # Konten jendela dibungkus tab: Pengaturan Toko, Tambah Karyawan,
+        # Inventaris Toko, dan Seting Pembayaran Kasir.
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet(
             "QTabWidget::pane { border: 1px solid #3f3f46; "
@@ -195,6 +199,19 @@ class UserManagementView(QWidget):
 
         self._build_inventory_tab()
         self.tabs.addTab(self._inventory_page, "Inventaris Toko")
+
+        # Pengaturan toko digabung ke jendela ini: tab pertama
+        # "Pengaturan Toko", tab terakhir "Seting Pembayaran Kasir".
+        self.store_settings = StoreSettingsView(
+            actor,
+            StoreSettingsService(user_management.session),
+            payment_service=PaymentSettingsService(user_management.session),
+        )
+        self.store_settings.setParent(self)
+        self.tabs.insertTab(0, self.store_settings.store_tab, "Pengaturan Toko")
+        self.tabs.addTab(
+            self.store_settings.payment_tab, "Seting Pembayaran Kasir"
+        )
 
         self.refresh_users()
         self.refresh_inventory()

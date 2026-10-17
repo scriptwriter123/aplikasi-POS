@@ -131,8 +131,10 @@ def test_manajemen_toko_view_has_tabs(user_session: Session, qt_app):
     tabs = view.findChildren(QTabWidget)
     assert tabs, "Jendela Manajemen Toko harus memakai tab"
     assert [tabs[0].tabText(i) for i in range(tabs[0].count())] == [
+        "Pengaturan Toko",
         "Tambah Karyawan",
         "Inventaris Toko",
+        "Seting Pembayaran Kasir",
     ]
     view.close()
 

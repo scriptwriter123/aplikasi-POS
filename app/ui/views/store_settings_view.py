@@ -7,15 +7,12 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QFileDialog,
     QFormLayout,
-    QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
-    QScrollArea,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -27,12 +24,9 @@ from app.core.exceptions import AuthorizationError, ValidationError
 from app.models import Category, Product, Unit
 from app.services.store_settings_service import StoreSettingsService
 from app.services.payment_settings_service import PaymentSettingsService
-from app.ui.theme import PALETTE
-from app.ui.widgets import create_dashboard_back_button
 
 
 class StoreSettingsView(QWidget):
-    back_requested = Signal()
     settings_saved = Signal(object)
 
     def __init__(
@@ -52,59 +46,24 @@ class StoreSettingsView(QWidget):
         self.payment_settings = None
         self._editing = False
         self._syncing_all = False
+        self._action_rows: list[tuple[QPushButton, QPushButton, QPushButton]] = []
 
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
-
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
-        content = QWidget()
-        content.setObjectName("storeSettingsContent")
-        content.setStyleSheet(
-            f"QWidget#storeSettingsContent {{ background-color: {PALETTE['window']}; }}"
-        )
-        outer.addWidget(scroll)
-
-        root = QVBoxLayout(content)
-        root.setContentsMargins(32, 26, 32, 30)
-        root.setSpacing(16)
-
-        header = QHBoxLayout()
-        self.back_button = create_dashboard_back_button(self)
-        self.back_button.clicked.connect(self.back_requested.emit)
-        title = QLabel("Pengaturan Toko")
-        title.setStyleSheet("font-size: 25px; font-weight: 700; color: #ffffff;")
-        header.addWidget(self.back_button)
-        header.addWidget(title)
-        header.addStretch(1)
-        root.addLayout(header)
-
-        description = QLabel(
-            "Atur identitas toko pada tab Pengaturan Toko dan pilih metode "
-            "pembayaran kasir pada tab Seting Atur Pembayaran Kasir."
-        )
-        description.setWordWrap(True)
-        description.setStyleSheet("color: #a1a1aa;")
-        root.addWidget(description)
-
-        tabs = QTabWidget()
-        tabs.setDocumentMode(True)
-        tabs.setStyleSheet(
-            "QTabWidget::pane { border: 1px solid #3f3f4a; border-radius: 8px; }"
-            "QTabBar::tab { background: #1a1a1e; color: #a1a1aa; padding: 8px 24px; "
-            "margin-right: 4px; border-top-left-radius: 8px; "
-            "border-top-right-radius: 8px; }"
-            "QTabBar::tab:selected { background: #12263a; color: #93c5fd; "
-            "font-weight: 600; }"
-        )
-
-        store_tab = QWidget()
-        store_layout = QVBoxLayout(store_tab)
+        # Halaman tab pertama jendela Manajemen Toko: "Pengaturan Toko".
+        self.store_tab = QWidget()
+        store_layout = QVBoxLayout(self.store_tab)
         store_layout.setContentsMargins(16, 16, 16, 16)
         store_layout.setSpacing(16)
+
+        hint = QLabel(
+            "Atur identitas toko (nama, slogan, alamat, WhatsApp, logo, dan "
+            "folder snapshot database produk) pada form ini. Klik Ubah lalu "
+            "Simpan untuk menyimpan; metode pembayaran kasir diatur pada "
+            "tab Seting Pembayaran Kasir."
+        )
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #a1a1aa;")
+        store_layout.addWidget(hint)
+
         form = QFormLayout()
         self.name_input = QLineEdit()
         self.name_input.setMaxLength(150)
@@ -162,10 +121,12 @@ class StoreSettingsView(QWidget):
         form.addRow("Pilih Folder Simpan Database", db_folder_row)
         store_layout.addLayout(form)
         store_layout.addStretch(1)
-        tabs.addTab(store_tab, "Pengaturan Toko")
+        store_layout.addLayout(self._create_action_row())
 
-        payment_tab = QWidget()
-        payment_layout = QVBoxLayout(payment_tab)
+        # Halaman tab terakhir jendela Manajemen Toko:
+        # "Seting Pembayaran Kasir".
+        self.payment_tab = QWidget()
+        payment_layout = QVBoxLayout(self.payment_tab)
         payment_layout.setContentsMargins(16, 16, 16, 16)
         payment_layout.setSpacing(12)
 
@@ -229,24 +190,7 @@ class StoreSettingsView(QWidget):
         add_payment_row(self.payment_all, with_setting=True)
         payment_layout.addLayout(payment_grid)
         payment_layout.addStretch(1)
-        tabs.addTab(payment_tab, "Seting Atur Pembayaran Kasir")
-        root.addWidget(tabs)
-
-        action_row = QHBoxLayout()
-        action_row.addStretch(1)
-        self.edit_button = QPushButton("Ubah")
-        self.edit_button.clicked.connect(self._begin_edit)
-        self.save_button = QPushButton("Simpan")
-        self.save_button.clicked.connect(self._save)
-        self.cancel_button = QPushButton("Batal")
-        self.cancel_button.clicked.connect(self._cancel_edit)
-        action_row.addWidget(self.edit_button)
-        action_row.addWidget(self.save_button)
-        action_row.addWidget(self.cancel_button)
-        root.addLayout(action_row)
-        root.addStretch(1)
-
-        scroll.setWidget(content)
+        payment_layout.addLayout(self._create_action_row())
 
         self._load_store()
         self._set_editing(False)
@@ -393,6 +337,25 @@ class StoreSettingsView(QWidget):
                 return
         self.logo_preview.setText("Belum ada logo")
 
+    def _create_action_row(self) -> QHBoxLayout:
+        action_row = QHBoxLayout()
+        action_row.addStretch(1)
+        edit_button = QPushButton("Ubah")
+        edit_button.clicked.connect(self._begin_edit)
+        save_button = QPushButton("Simpan")
+        save_button.clicked.connect(self._save)
+        cancel_button = QPushButton("Batal")
+        cancel_button.clicked.connect(self._cancel_edit)
+        action_row.addWidget(edit_button)
+        action_row.addWidget(save_button)
+        action_row.addWidget(cancel_button)
+        self._action_rows.append((edit_button, save_button, cancel_button))
+        if not hasattr(self, "edit_button"):
+            self.edit_button = edit_button
+            self.save_button = save_button
+            self.cancel_button = cancel_button
+        return action_row
+
     def _begin_edit(self):
         self._editing = True
         self._set_editing(True)
@@ -415,9 +378,10 @@ class StoreSettingsView(QWidget):
             checkbox.setEnabled(editing)
         for setting_button in self._payment_setting_buttons:
             setting_button.setEnabled(editing)
-        self.edit_button.setVisible(not editing)
-        self.save_button.setVisible(editing)
-        self.cancel_button.setVisible(editing)
+        for edit_button, save_button, cancel_button in self._action_rows:
+            edit_button.setVisible(not editing)
+            save_button.setVisible(editing)
+            cancel_button.setVisible(editing)
         self._editing = editing
 
     def _choose_logo(self):

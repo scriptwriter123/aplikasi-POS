@@ -13,7 +13,6 @@ from PySide6.QtWidgets import (
 
 from app.models import Store
 from app.services.store_settings_service import StoreSettingsService
-from app.services.payment_settings_service import PaymentSettingsService
 from app.services.user_management_service import UserManagementService
 from app.ui.views.attendance_view import AttendanceView
 from app.ui.views.cashier_view import CashierView
@@ -23,7 +22,6 @@ from app.ui.views.master_data_view import MasterDataView
 from app.ui.views.purchase_view import PurchaseView
 from app.ui.views.report_center_view import ReportCenterView
 from app.ui.views.report_view import ReportView
-from app.ui.views.store_settings_view import StoreSettingsView
 from app.ui.views.user_management_view import UserManagementView
 from app.ui.widgets import create_copyright_label
 
@@ -47,7 +45,6 @@ class MainWindow(QMainWindow):
         self.user_management = user_management
         self.read_only = bool(read_only)
         self.store_settings = StoreSettingsService(self.user_management.session)
-        self.payment_settings = PaymentSettingsService(self.user_management.session)
         self.store: Store | None = self.store_settings.get_store()
         self.stack = QStackedWidget()
 
@@ -99,6 +96,12 @@ class MainWindow(QMainWindow):
             self.user_management_view.back_requested.connect(
                 self.show_dashboard
             )
+            # Pengaturan toko & pembayaran kasir menempel sebagai tab
+            # pertama & terakhir di dalam jendela Manajemen Toko.
+            self.store_settings_view = self.user_management_view.store_settings
+            self.store_settings_view.settings_saved.connect(
+                self._store_settings_saved
+            )
             self.stack.addWidget(self.user_management_view)
             self.sales_report_view = ReportView(
                 self.user_management.session,
@@ -130,16 +133,6 @@ class MainWindow(QMainWindow):
             )
             self.master_data_view.back_requested.connect(self.show_dashboard)
             self.stack.addWidget(self.master_data_view)
-            self.store_settings_view = StoreSettingsView(
-                user,
-                self.store_settings,
-                payment_service=self.payment_settings,
-            )
-            self.store_settings_view.back_requested.connect(self.show_dashboard)
-            self.store_settings_view.settings_saved.connect(
-                self._store_settings_saved
-            )
-            self.stack.addWidget(self.store_settings_view)
             self.purchase_view = PurchaseView(
                 user,
                 self.user_management.session,
@@ -228,6 +221,7 @@ class MainWindow(QMainWindow):
             return
         self.user_management_view.refresh_users()
         self.user_management_view.refresh_inventory()
+        self.user_management_view.store_settings.reload_settings()
         self.stack.setCurrentWidget(self.user_management_view)
 
     def show_dashboard(self):
@@ -256,8 +250,10 @@ class MainWindow(QMainWindow):
 
     def show_store_settings(self):
         if self.user.role.name.upper() == "OWNER":
-            self.store_settings_view.reload_settings()
-            self.stack.setCurrentWidget(self.store_settings_view)
+            self.show_user_management()
+            self.user_management_view.tabs.setCurrentWidget(
+                self.user_management_view.store_settings.store_tab
+            )
 
     def show_suppliers(self):
         if self.user.role.name.upper() == "OWNER":
@@ -288,7 +284,6 @@ class MainWindow(QMainWindow):
                 getattr(self, "user_management_view", None): "Manajemen Toko",
                 getattr(self, "report_center", None): "Laporan",
                 getattr(self, "master_data_view", None): "Master Data",
-                getattr(self, "store_settings_view", None): "Pengaturan Toko",
                 getattr(self, "purchase_view", None): "Belanja dan Supplier",
             }
             page_title = page_titles.get(widget, "POS Retail")

@@ -187,3 +187,71 @@ def test_initialization_rejects_future_start_date(finance_session):
             date.today() + timedelta(days=1),
             {},
         )
+
+
+def test_expense_payment_status_lifecycle(finance_session):
+    session, owner, accounts = finance_session
+    service = FinancialService(session)
+    start_date = date.today()
+    service.initialize(owner, start_date, {accounts["1000"].id: 1_000_000})
+
+    def make(amount, initial, status, due=True):
+        return service.create_expense(
+            owner,
+            account_id=accounts["6100"].id,
+            amount=amount,
+            incurred_at=datetime.now().astimezone(),
+            payee="Vendor",
+            description="Beban operasional",
+            due_date=start_date + timedelta(days=7) if due else None,
+            initial_payment=initial,
+            payment_account_id=(
+                accounts["1000"].id if initial else None
+            ),
+            payment_method="CASH",
+            payment_status=status,
+        )
+
+    hutang = make(50_000, 0, "HUTANG")
+    assert hutang.payment_status == "HUTANG"
+    assert hutang.paid_amount == 0
+
+    # DP dari tab Catat selalu menyertakan Jumlah DP (> 0, < total).
+    dp = make(80_000, 25_000, "DP")
+    assert dp.payment_status == "DP"
+    assert dp.paid_amount == 25_000
+
+    cash = make(20_000, 20_000, "CASH", due=False)
+    assert cash.payment_status == "CASH"
+    assert cash.paid_amount == 20_000
+
+    # Status tidak konsisten dengan pembayaran -> ditolak.
+    with pytest.raises(ValidationError, match="lunas"):
+        make(20_000, 0, "CASH")
+    with pytest.raises(ValidationError, match="Hutang"):
+        make(20_000, 5_000, "HUTANG")
+    with pytest.raises(ValidationError, match="Jumlah DP"):
+        make(20_000, 0, "DP")
+
+    # Pembayaran sebagian mempertahankan status; pelunasan -> CASH.
+    partial = service.record_expense_payment(
+        owner, hutang.id, 30_000, accounts["1000"].id, "CASH"
+    )
+    assert partial.payment_status == "HUTANG"
+    assert partial.paid_amount == 30_000
+    settled = service.record_expense_payment(
+        owner, hutang.id, 20_000, accounts["1000"].id, "CASH"
+    )
+    assert settled.payment_status == "CASH"
+    assert settled.paid_amount == 50_000
+
+    dp_partial = service.record_expense_payment(
+        owner, dp.id, 30_000, accounts["1000"].id, "CASH"
+    )
+    assert dp_partial.payment_status == "DP"
+    assert dp_partial.paid_amount == 55_000
+    dp_settled = service.record_expense_payment(
+        owner, dp.id, 25_000, accounts["1000"].id, "CASH"
+    )
+    assert dp_settled.payment_status == "CASH"
+    assert dp_settled.paid_amount == 80_000

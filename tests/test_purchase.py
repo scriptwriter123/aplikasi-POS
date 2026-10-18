@@ -599,6 +599,39 @@ def test_daftar_pembelian_tab_lists_lunas_tempo_and_dp(
     debt_rows = view.debt_table.rowCount()
     assert debt_rows == 2
     assert "Rp 16.000,00" in view.debt_summary.text()
+
+    # Sel status DP menyimpan hint jumlah DP yang sudah dibayarkan.
+    dp_row = next(
+        row
+        for row in range(table.rowCount())
+        if table.item(row, 5).text() == "DP (uang muka)"
+    )
+    assert (
+        "yang telah dibayarkan: Rp 4.000,00"
+        in table.item(dp_row, 5).toolTip()
+    )
+    debt_dp_row = next(
+        row
+        for row in range(view.debt_table.rowCount())
+        if view.debt_table.item(row, 5).text() == "DP (uang muka)"
+    )
+    assert (
+        "yang telah dibayarkan: Rp 4.000,00"
+        in view.debt_table.item(debt_dp_row, 5).toolTip()
+    )
+
+    # Input + tombol Cari menyaring baris daftar pembelian.
+    view.purchase_search.input.setText("DP (uang muka)")
+    view.purchase_search.button.click()
+    assert not table.isRowHidden(dp_row)
+    assert all(
+        table.isRowHidden(row)
+        for row in range(table.rowCount())
+        if row != dp_row
+    )
+    view.purchase_search.input.setText("")
+    view.purchase_search.button.click()
+    assert not table.isRowHidden(0)
     view.close()
 
 

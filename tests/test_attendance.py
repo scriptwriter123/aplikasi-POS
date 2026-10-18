@@ -178,7 +178,7 @@ def test_report_center_tabs(qt_app):
 
     center.show_tab("Absensi Karyawan")
     qt_app.processEvents()
-    assert center.tabs.currentIndex() == ReportCenterView.TAB_ATTENDANCE
+    assert center.tabs.currentIndex() == center.TAB_ATTENDANCE
     assert attendance.refresh_count == 1
 
     center.show_tab("Penjualan")

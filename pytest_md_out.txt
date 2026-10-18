@@ -1,0 +1,17 @@
+============================= test session starts =============================
+platform win32 -- Python 3.12.4, pytest-8.4.2, pluggy-1.6.0 -- E:\POS\KASIR\venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: E:\POS\KASIR
+configfile: pyproject.toml
+plugins: anyio-4.15.1
+collecting ... collected 17 items
+
+tests/test_master_data.py::test_owner_can_create_category_and_product_with_initial_stock_movement PASSED [  5%]
+tests/test_master_data.py::test_owner_can_create_multiple_categories_atomically PASSED [ 11%]
+tests/test_master_data.py::test_category_batch_dialog_has_five_inputs_and_ignores_blank_fields PASSED [ 17%]
+tests/test_master_data.py::test_owner_can_soft_delete_product_without_removing_stock_history PASSED [ 23%]
+tests/test_master_data.py::test_owner_can_add_stock_and_record_movement PASSED [ 29%]
+tests/test_master_data.py::test_product_search_supports_sku_barcode_name_and_category PASSED [ 35%]
+tests/test_master_data.py::test_master_product_can_select_a_preferred_supplier PASSED [ 41%]
+tests/test_master_data.py::test_master_data_search_filters_product_category_and_supplier PASSED [ 47%]
+tests/test_master_data.py::test_owner_can_configure_bulk_price_rule_from_master_data 

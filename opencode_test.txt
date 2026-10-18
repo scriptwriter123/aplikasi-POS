@@ -1,0 +1,45 @@
+Tidak apa-apa. Kesalahannya hanya karena `opencode` dan `mkdir` tergabung menjadi satu perintah: `opencodemkdir`. Kita lanjutkan dari CMD yang sekarang.
+
+## 1. Buat folder database
+
+Jalankan perintah ini:
+
+```
+mkdir "%USERPROFILE%\.opencode-data"
+```
+
+Jika folder sudah ada, tidak masalah.
+
+## 2. Atur lokasi database OpenCode
+
+Kamu sudah menjalankan:
+
+```
+set "OPENCODE_DB=%USERPROFILE%\.opencode-data\opencode.db"
+```
+
+Jadi, tidak perlu mengulanginya jika masih di jendela CMD yang sama.
+
+## 3. Uji database baru
+
+Jalankan:
+
+```
+opencode models
+```
+
+Lalu:
+
+```
+opencode
+```
+
+Pastikan tidak muncul lagi pesan:
+
+```
+Database is not empty and has no session table
+```
+
+Catatan: perintah `set` hanya berlaku pada jendela CMD saat ini. Jangan tutup jendela sebelum pengujian selesai.
+
+Kirimkan hasil `opencode models` setelah langkah di atas. Jika berhasil, berikutnya kita atur variabel database secara permanen dan hubungkan provider AI gratis untuk proyek POS Python kamu.

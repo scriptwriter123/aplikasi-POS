@@ -481,6 +481,10 @@ class Expense(Base, TimestampMixin):
     __tablename__ = "expenses"
     __table_args__ = (
         CheckConstraint("amount > 0", name="ck_expenses_amount_positive"),
+        CheckConstraint(
+            "payment_status IN ('CASH', 'HUTANG', 'DP')",
+            name="ck_expenses_payment_status",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -489,6 +493,9 @@ class Expense(Base, TimestampMixin):
     category: Mapped[str] = mapped_column(String(80), nullable=False)
     amount: Mapped[int] = mapped_column(Integer, nullable=False)
     paid_amount: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    payment_status: Mapped[str] = mapped_column(
+        String(10), nullable=False, default="CASH", server_default="CASH"
+    )
     due_date: Mapped[date | None] = mapped_column(Date)
     payee: Mapped[str | None] = mapped_column(String(150))
     account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"))

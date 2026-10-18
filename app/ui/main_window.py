@@ -115,12 +115,16 @@ class MainWindow(QMainWindow):
                 user,
                 self.user_management.session,
             )
-            # Jendela "Laporan" gabungan: Penjualan & Absensi Karyawan
-            # (tab); keduanya memakai instance yang sama. Tab Keuangan
-            # (Modal Awal) pindah ke jendela Manajemen Toko.
+            # Jendela "Laporan" gabungan: Penjualan, Absensi Karyawan,
+            # dan tab laporan keuangan (Pendapatan, Pengeluaran, Hutang,
+            # Inventaris, Keuangan, Progress); tiap view memakai
+            # instance yang sama. Tab Keuangan (Modal Awal) pindah ke
+            # jendela Manajemen Toko.
             self.report_center = ReportCenterView(
                 sales_view=self.sales_report_view,
                 attendance_view=self.attendance_view,
+                session=self.user_management.session,
+                actor=user,
             )
             self.report_center.back_requested.connect(self.show_dashboard)
             self.stack.addWidget(self.report_center)
@@ -219,11 +223,14 @@ class MainWindow(QMainWindow):
         self.user_management_view.refresh_users()
         self.user_management_view.refresh_inventory()
         self.user_management_view.store_settings.reload_settings()
-        # Jendela terbuka saat tab terakhir terbuka adalah Modal Awal:
-        # sinyal currentChanged tidak akan menyala, jadi refresh manual.
-        if (
-            self.user_management_view.tabs.currentWidget()
-            is self.user_management_view.financial_view
+        # Jendela terbuka saat tab keuangan (Modal Awal / Catat / Bayar
+        # Pengeluaran) masih terbuka: sinyal currentChanged tidak akan
+        # menyala, jadi refresh manual.
+        current_tab = self.user_management_view.tabs.currentWidget()
+        if current_tab in (
+            self.user_management_view.financial_view,
+            self.user_management_view.expense_entry_view,
+            self.user_management_view.expense_payment_view,
         ):
             self.user_management_view.refresh_financial()
         self.stack.setCurrentWidget(self.user_management_view)

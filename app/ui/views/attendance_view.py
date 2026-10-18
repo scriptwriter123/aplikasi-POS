@@ -17,6 +17,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.exceptions import AuthorizationError, ValidationError
 from app.services.attendance_service import AttendanceService
+from app.ui.widgets import TableSearchBar
 
 
 class AttendanceView(QWidget):
@@ -81,6 +82,10 @@ class AttendanceView(QWidget):
             QTableWidget.SelectionBehavior.SelectRows
         )
         self.table.horizontalHeader().setStretchLastSection(True)
+        self.search_bar = TableSearchBar(
+            self.table, "Cari nama / tanggal..."
+        )
+        root.addWidget(self.search_bar)
         root.addWidget(self.table, 1)
 
         self.period_input.currentIndexChanged.connect(self.refresh)

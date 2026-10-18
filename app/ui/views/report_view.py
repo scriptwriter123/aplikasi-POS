@@ -29,6 +29,7 @@ from app.services.report_service import ReportService
 from app.utils.formatters import rupiah
 from app.ui.widgets import (
     PRIMARY_BUTTON_STYLE,
+    TableSearchBar,
     create_dashboard_back_button,
 )
 
@@ -123,15 +124,6 @@ class ReportView(QWidget):
         self.warning_label.setStyleSheet("color: #fdba74;")
         root.addWidget(self.warning_label)
 
-        self.low_stock_label = QLabel()
-        self.low_stock_label.setWordWrap(True)
-        self.low_stock_label.setStyleSheet(
-            "color: #fdba74; background: #3a2410; padding: 8px; "
-            "border-radius: 6px;"
-        )
-        root.addWidget(self.low_stock_label)
-        self.low_stock_label.setVisible(report_type == "sales")
-
         self.cashier_reports_heading = QLabel("Laporan Kasir Harian")
         self.cashier_reports_heading.setStyleSheet(
             "font-size: 17px; font-weight: 700; color: #ffffff;"
@@ -160,9 +152,14 @@ class ReportView(QWidget):
         self.cashier_reports_table.setWordWrap(True)
         self.cashier_reports_table.setMaximumHeight(200)
         self.cashier_reports_table.horizontalHeader().setStretchLastSection(True)
+        self.cashier_reports_search = TableSearchBar(
+            self.cashier_reports_table, "Cari laporan kasir..."
+        )
+        root.addWidget(self.cashier_reports_search)
         root.addWidget(self.cashier_reports_table)
         self.cashier_reports_heading.setVisible(report_type == "sales")
         self.cashier_reports_summary.setVisible(report_type == "sales")
+        self.cashier_reports_search.setVisible(report_type == "sales")
         self.cashier_reports_table.setVisible(report_type == "sales")
 
         self.report_table = QTableWidget()
@@ -174,7 +171,12 @@ class ReportView(QWidget):
         )
         self.report_table.horizontalHeader().setStretchLastSection(True)
         self.report_table.setVisible(report_type != "sales")
+        self.report_search = TableSearchBar(
+            self.report_table, "Cari data..."
+        )
+        root.addWidget(self.report_search)
         root.addWidget(self.report_table, 1)
+        self.report_search.setVisible(report_type != "sales")
         self._update_period_heading()
         self.refresh_report()
 
@@ -294,7 +296,6 @@ class ReportView(QWidget):
             if self.report_type == "sales":
                 rows = self.report_service.sales(start, end)
                 self._populate_sales_report(rows, period_label)
-                self._populate_low_stock_products()
                 self._populate_cashier_daily_reports(start, end)
             else:
                 rows = self.report_service.profits(start, end)
@@ -307,30 +308,6 @@ class ReportView(QWidget):
             self.print_button.setEnabled(False)
             self.save_button.setEnabled(False)
             QMessageBox.warning(self, "Laporan gagal dimuat", str(exc))
-
-    def _populate_low_stock_products(self):
-        products = self.report_service.low_stock_products(threshold=5)
-        if products:
-            out_of_stock = [product for product in products if product.stock_qty == 0]
-            low_stock = [product for product in products if product.stock_qty > 0]
-            sections = []
-            if out_of_stock:
-                details = "\n".join(
-                    f"{product.name} ({product.sku})"
-                    for product in out_of_stock
-                )
-                sections.append(f"Stok habis (0):\n{details}")
-            if low_stock:
-                details = "\n".join(
-                    f"{product.name} ({product.sku}): stok {product.stock_qty}"
-                    for product in low_stock
-                )
-                sections.append(f"Stok rendah (< 5):\n{details}")
-            self.low_stock_label.setText("\n\n".join(sections))
-        else:
-            self.low_stock_label.setText(
-                "Tidak ada produk aktif dengan stok habis atau di bawah 5."
-            )
 
     def _populate_cashier_daily_reports(self, start: datetime, end: datetime):
         reports = self.cashier_daily_reports.reports(start, end)

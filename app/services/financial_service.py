@@ -163,8 +163,9 @@ class FinancialService:
         settings = self.settings()
         if settings is None or settings.effective_from is None:
             raise ValidationError(
-                "Pembukuan belum diaktifkan. OWNER harus mengisi saldo awal "
-                "melalui menu Laporan Keuangan sebelum transaksi dicatat."
+                "Pembukuan belum diaktifkan. OWNER harus mengisi Modal lalu "
+                "mengaktifkan Laporan Keuangan di tab Modal Awal "
+                "(Manajemen Toko) sebelum transaksi dicatat."
             )
         return settings
 
@@ -269,6 +270,7 @@ class FinancialService:
         initial_payment: int,
         payment_account_id: int | None,
         payment_method: str,
+        payment_status: str | None = None,
     ) -> Expense:
         self._require_owner(actor)
         self._require_transactions_allowed()
@@ -277,6 +279,32 @@ class FinancialService:
             raise ValidationError("Nominal pengeluaran harus lebih dari Rp 0.")
         if initial_payment < 0 or initial_payment > amount:
             raise ValidationError("Pembayaran awal harus antara Rp 0 dan total tagihan.")
+        if payment_status is None:
+            payment_status = (
+                "CASH"
+                if initial_payment == amount
+                else "HUTANG"
+                if initial_payment == 0
+                else "DP"
+            )
+        elif payment_status not in {"CASH", "HUTANG", "DP"}:
+            raise ValidationError(
+                "Status pembayaran tidak valid. Pilih Tunai, Hutang, atau DP."
+            )
+        if payment_status == "CASH" and initial_payment != amount:
+            raise ValidationError(
+                "Status Tunai berarti lunas; pembayaran awal harus sama "
+                "dengan total pengeluaran."
+            )
+        if payment_status == "HUTANG" and initial_payment != 0:
+            raise ValidationError(
+                "Status Hutang berarti belum ada pembayaran awal."
+            )
+        if payment_status == "DP" and not 0 < initial_payment < amount:
+            raise ValidationError(
+                "Status DP membutuhkan Jumlah DP antara Rp 1 dan di bawah "
+                "total pengeluaran."
+            )
         if initial_payment < amount and due_date is None:
             raise ValidationError(
                 "Tanggal jatuh tempo wajib jika pengeluaran belum lunas."
@@ -297,6 +325,7 @@ class FinancialService:
             account_id=account.id,
             amount=amount,
             paid_amount=0,
+            payment_status=payment_status,
             incurred_at=incurred_at,
             due_date=due_date,
             payee=payee.strip() or None,
@@ -765,6 +794,8 @@ class FinancialService:
             memo = f"Pembayaran {purchase.order_no}"
         else:
             expense.paid_amount += amount
+            if expense.paid_amount >= expense.amount:
+                expense.payment_status = "CASH"
             source_type = "EXPENSE_PAYMENT"
             memo = f"Pembayaran pengeluaran #{expense.id}"
         self._create_entry(

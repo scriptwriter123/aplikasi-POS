@@ -38,7 +38,7 @@ from app.models import Account, Product, PurchaseOrder
 from app.services.master_data_service import MasterDataService
 from app.services.purchase_service import PurchaseService
 from app.ui.views.supplier_view import SupplierView
-from app.ui.widgets import create_copyright_label
+from app.ui.widgets import TableSearchBar, attach_status_focus_hint, create_copyright_label
 from app.utils.formatters import rupiah
 
 
@@ -352,6 +352,11 @@ class PurchaseView(QWidget):
             create_copyright_label(self),
             alignment=Qt.AlignmentFlag.AlignRight,
         )
+        self.purchase_search = TableSearchBar(
+            self.purchase_table, "Cari pembelian..."
+        )
+        daftar_layout.insertWidget(1, self.purchase_search)
+        attach_status_focus_hint(self.purchase_table)
         self.tabs.addTab(daftar_page, "Daftar Pembelian")
 
         # ---------------------------------------------- tab "Kelola Supplier"
@@ -403,7 +408,12 @@ class PurchaseView(QWidget):
         self.debt_table.setSelectionMode(
             QTableWidget.SelectionMode.SingleSelection
         )
+        self.debt_search = TableSearchBar(
+            self.debt_table, "Cari sisa hutang..."
+        )
+        bayar_layout.addWidget(self.debt_search)
         bayar_layout.addWidget(self.debt_table, 1)
+        attach_status_focus_hint(self.debt_table)
 
         self.debt_summary = QLabel()
         self.debt_summary.setStyleSheet(
@@ -568,25 +578,32 @@ class PurchaseView(QWidget):
                 else "-",
                 rupiah(due),
             )
+            dp_hint = (
+                "DP (uang muka) yang telah dibayarkan: "
+                + rupiah(purchase.paid_amount)
+                if purchase.payment_status == "DP"
+                else ""
+            )
             for column, value in enumerate(values):
                 self.purchase_table.setItem(
                     row,
                     column,
                     QTableWidgetItem(value),
                 )
+            if dp_hint:
+                self.purchase_table.item(row, 5).setToolTip(dp_hint)
             if due > 0:
-                debt_entries.append((purchase.id, values))
+                debt_entries.append((purchase.id, values, dp_hint))
         self.purchase_table.resizeColumnsToContents()
 
         self.debt_purchase_ids = [entry[0] for entry in debt_entries]
         self.debt_table.setRowCount(len(debt_entries))
         for row, entry in enumerate(debt_entries):
             for column, value in enumerate(entry[1]):
-                self.debt_table.setItem(
-                    row,
-                    column,
-                    QTableWidgetItem(value),
-                )
+                item = QTableWidgetItem(value)
+                if column == 5 and entry[2]:
+                    item.setToolTip(entry[2])
+                self.debt_table.setItem(row, column, item)
         self.debt_table.resizeColumnsToContents()
 
         self.debt_summary.setText(

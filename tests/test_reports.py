@@ -25,6 +25,7 @@ from app.models import (
 from app.services.cashier_daily_report_service import CashierDailyReportService
 from app.services.report_periods import calculate_period_range
 from app.services.report_service import ReportService
+from app.ui.views.report_tabs_view import LowStockReportView
 from app.ui.views.report_view import (
     CashierDailyReportDetailsDialog,
     ReportView,
@@ -187,14 +188,55 @@ def test_low_stock_report_lists_active_products_below_five_only(
     assert [product.sku for product in low_stock] == ["LOW-0", "LOW-4"]
 
     app = QApplication.instance() or QApplication([])
-    view = ReportView(report_session, "sales")
-    view._populate_low_stock_products()
-    label_text = view.low_stock_label.text()
-    assert "Stok habis (0):" in label_text
-    assert "Out of stock (LOW-0)" in label_text
-    assert "Stok rendah (< 5):" in label_text
-    assert "Low stock (LOW-4): stok 4" in label_text
+    view = LowStockReportView(report_session)
+    assert view.table.rowCount() == 2
+    assert view.table.item(0, 0).text() == "LOW-0"
+    assert view.table.item(0, 4).text() == "HABIS"
+    assert view.table.item(1, 0).text() == "LOW-4"
+    assert view.table.item(1, 4).text() == "RENDAH"
+    assert "2 barang stok tipis (1 habis, 1 menipis)" in (
+        view.summary_label.text()
+    )
     view.close()
+
+
+def test_report_tab_search_bar_filters_and_survives_refresh(
+    report_session,
+):
+    from PySide6.QtTest import QTest
+
+    report_session.add_all(
+        [
+            Product(sku="LOW-0", name="Out of stock", stock_qty=0),
+            Product(sku="LOW-4", name="Low stock", stock_qty=4),
+        ]
+    )
+    report_session.flush()
+
+    app = QApplication.instance() or QApplication([])
+    view = LowStockReportView(report_session)
+    assert view.table.rowCount() == 2
+    assert view.search_bar.input.placeholderText() == "Cari barang..."
+
+    view.search_bar.input.setText("LOW-4")
+    view.search_bar.button.click()
+    assert view.table.isRowHidden(0)
+    assert not view.table.isRowHidden(1)
+
+    view.search_bar.input.setText("")
+    view.search_bar.button.click()
+    assert not view.table.isRowHidden(0)
+
+    # Refresh memuat ulang baris; kata kunci dipasang otomatis ulang.
+    view.search_bar.input.setText("LOW-0")
+    view.search_bar.button.click()
+    view.refresh_report()
+    QTest.qWait(150)
+    assert not view.table.isRowHidden(0)
+    assert view.table.isRowHidden(1)
+    view.close()
+    app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    app.processEvents()
 
 
 def test_report_can_be_saved_to_pdf_and_docx(tmp_path):
@@ -235,6 +277,120 @@ def test_report_service_rejects_reversed_period(report_session: Session):
             datetime(2026, 10, 10, tzinfo=timezone.utc),
             datetime(2026, 10, 9, tzinfo=timezone.utc),
         )
+
+
+def test_sales_summary_groups_paid_sales_by_day_month_year(
+    report_session: Session,
+):
+    role = Role(name="CASHIER")
+    store = Store(code="MAIN", name="Test Store")
+    report_session.add_all([role, store])
+    report_session.flush()
+    cashier = User(
+        username="cashier",
+        full_name="Test Cashier",
+        password_hash="unused",
+        role=role,
+    )
+    report_session.add(cashier)
+    report_session.flush()
+    shift = Shift(
+        store_id=store.id,
+        cashier_id=cashier.id,
+        opened_at=datetime(2026, 9, 1, 0, tzinfo=timezone.utc),
+    )
+    report_session.add(shift)
+    report_session.flush()
+
+    def make_sale(invoice_no, total, status, created_at):
+        return Sale(
+            invoice_no=invoice_no,
+            store_id=store.id,
+            shift_id=shift.id,
+            cashier_id=cashier.id,
+            subtotal=total,
+            grand_total=total,
+            status=status,
+            created_at=created_at,
+        )
+
+    report_session.add_all(
+        [
+            make_sale(
+                "INV-DAY-1",
+                10_000,
+                "PAID",
+                datetime(2026, 10, 9, 12, tzinfo=timezone.utc),
+            ),
+            make_sale(
+                "INV-DAY-2",
+                15_000,
+                "PAID",
+                datetime(2026, 10, 9, 13, tzinfo=timezone.utc),
+            ),
+            make_sale(
+                "INV-VOID",
+                5_000,
+                "VOID",
+                datetime(2026, 10, 9, 13, tzinfo=timezone.utc),
+            ),
+            make_sale(
+                "INV-OLD",
+                7_000,
+                "PAID",
+                datetime(2026, 9, 15, 12, tzinfo=timezone.utc),
+            ),
+        ]
+    )
+    report_session.flush()
+
+    service = ReportService(report_session)
+
+    daily = service.sales_summary("day")
+    day_1 = datetime(2026, 10, 9, 12, tzinfo=timezone.utc).astimezone()
+    day_2 = datetime(2026, 9, 15, 12, tzinfo=timezone.utc).astimezone()
+    assert [(row["period"], row["transactions"], row["revenue"]) for row in daily] == [
+        (day_1.strftime("%d-%m-%Y"), 2, 25_000),
+        (day_2.strftime("%d-%m-%Y"), 1, 7_000),
+    ]
+
+    monthly = service.sales_summary("month")
+    assert [
+        (row["period"], row["transactions"], row["revenue"]) for row in monthly
+    ] == [("10-2026", 2, 25_000), ("09-2026", 1, 7_000)]
+
+    yearly = service.sales_summary("year")
+    assert [(row["period"], row["transactions"], row["revenue"]) for row in yearly] == [
+        ("2026", 3, 32_000)
+    ]
+
+    with pytest.raises(ValueError, match="tidak dikenal"):
+        service.sales_summary("week")
+
+
+def test_inventory_valuation_totals_stock_at_purchase_cost(
+    report_session: Session,
+):
+    report_session.add_all(
+        [
+            Product(sku="VAL-A", name="Produk A", stock_qty=10, purchase_price=500),
+            Product(sku="VAL-B", name="Produk B", stock_qty=0, purchase_price=900),
+            Product(
+                sku="VAL-DEL",
+                name="Dihapus",
+                stock_qty=99,
+                purchase_price=10,
+                deleted_at=datetime.now(timezone.utc),
+            ),
+        ]
+    )
+    report_session.flush()
+
+    items = ReportService(report_session).inventory_valuation()
+
+    assert [item["sku"] for item in items] == ["VAL-A", "VAL-B"]
+    assert items[0]["value"] == 5_000
+    assert sum(item["value"] for item in items) == 5_000
 
 
 def test_cashier_daily_report_saves_totals_and_updates_existing_report(
@@ -399,8 +555,14 @@ def test_cashier_daily_report_saves_totals_and_updates_existing_report(
     )
     report_session.add(low_stock_product)
     report_session.flush()
-    view._populate_low_stock_products()
-    assert "Produk stok tipis (LOW-REPORT): stok 3" in view.low_stock_label.text()
+    low_view = LowStockReportView(report_session)
+    assert any(
+        low_view.table.item(row, 0).text() == "LOW-REPORT"
+        and low_view.table.item(row, 2).text() == "3"
+        and low_view.table.item(row, 4).text() == "RENDAH"
+        for row in range(low_view.table.rowCount())
+    )
+    low_view.close()
     view.close()
     profit_view = ReportView(report_session, "profit")
     assert not profit_view.report_table.isHidden()

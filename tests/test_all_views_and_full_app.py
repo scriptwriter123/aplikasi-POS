@@ -1,11 +1,11 @@
 import os
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox, QWidget
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
@@ -18,6 +18,8 @@ from app.models import (
     Category,
     Product,
     Role,
+    Sale,
+    Shift,
     Store,
     Supplier,
     Unit,
@@ -39,6 +41,7 @@ from app.ui.views.login_view import LoginView
 from app.ui.views.master_data_view import MasterDataView
 from app.ui.views.purchase_view import PurchaseView
 from app.ui.views.user_management_view import UserManagementView
+from app.utils.formatters import rupiah
 
 
 @pytest.fixture
@@ -211,6 +214,395 @@ def test_full_owner_navigation_and_all_views(qt_application: QApplication, full_
     window.show_dashboard()
     assert isinstance(window.stack.currentWidget(), DashboardView)
     window.close()
+
+
+def test_modal_awal_checkbox_activates_financial_books(
+    qt_application: QApplication, monkeypatch
+):
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        roles = {
+            name: Role(name=name, description=name)
+            for name in ("OWNER", "CASHIER")
+        }
+        session.add_all(roles.values())
+        session.flush()
+        owner = User(
+            username="owner",
+            full_name="Owner Toko",
+            password_hash=hash_password("owner123"),
+            role=roles["OWNER"],
+        )
+        session.add(owner)
+        session.flush()
+        session.add_all(
+            [
+                Account(
+                    code="1000",
+                    name="Kas",
+                    account_type="ASSET",
+                    is_active=True,
+                    is_system=True,
+                ),
+                Account(
+                    code="3000",
+                    name="Modal Pemilik",
+                    account_type="EQUITY",
+                    is_active=True,
+                    is_system=True,
+                ),
+                Account(
+                    code="3100",
+                    name="Saldo Awal",
+                    account_type="EQUITY",
+                    is_active=True,
+                    is_system=True,
+                ),
+            ]
+        )
+        session.flush()
+
+        user_mgmt = UserManagementService(session, UserRepository(session))
+        view = UserManagementView(owner, user_mgmt)
+        financial = view.financial_view
+
+        # Sebelum diisi: checkbox nonaktif, pembukuan belum jalan.
+        assert not financial.service.is_initialized()
+        assert not financial.activate_checkbox.isEnabled()
+
+        # Isi Modal -> checkbox "Aktifkan Laporan Keuangan" bisa dicentang.
+        financial.modal_input.setValue(2_500_000)
+        assert financial.activate_checkbox.isEnabled()
+
+        messages: list[tuple[str, str]] = []
+        monkeypatch.setattr(
+            QMessageBox,
+            "information",
+            lambda *args, **kwargs: messages.append(("info", str(args[2])))
+            or QMessageBox.StandardButton.Ok,
+        )
+        monkeypatch.setattr(
+            QMessageBox,
+            "warning",
+            lambda *args, **kwargs: messages.append(("warn", str(args[2])))
+            or QMessageBox.StandardButton.Ok,
+        )
+
+        financial.activate_checkbox.setChecked(True)
+
+        assert not [text for kind, text in messages if kind == "warn"]
+        assert [text for kind, text in messages if kind == "info"]
+        assert financial.service.is_initialized()
+        # Setelah aktif: checkbox tercentang lalu terkunci, input Modal mati.
+        assert financial.activate_checkbox.isChecked()
+        assert not financial.activate_checkbox.isEnabled()
+        assert not financial.modal_input.isEnabled()
+        # Tab pengeluaran ikut hidup: form & tabelnya menyala.
+        assert view.expense_entry_view.save_button.isEnabled()
+        assert view.expense_payment_view.expense_table.isEnabled()
+        view.close()
+
+
+def test_expense_payment_tab_pays_from_cash(
+    qt_application: QApplication, full_app_session: Session
+):
+    owner = full_app_session.query(User).filter_by(username="owner").one()
+    fin_service = FinancialService(full_app_session)
+    expense_account = next(
+        account
+        for account in fin_service.accounts("EXPENSE")
+        if account.code != "5000"
+    )
+    expense = fin_service.create_expense(
+        owner,
+        account_id=expense_account.id,
+        amount=50_000,
+        incurred_at=datetime.now().astimezone(),
+        payee="Vendor Listrik",
+        description="Tagihan listrik",
+        due_date=date.today() + timedelta(days=7),
+        initial_payment=0,
+        payment_account_id=None,
+        payment_method="CASH",
+        payment_status="HUTANG",
+    )
+
+    user_mgmt = UserManagementService(
+        full_app_session, UserRepository(full_app_session)
+    )
+    view = UserManagementView(owner, user_mgmt)
+    view.show()
+    qt_application.processEvents()
+
+    payment = view.expense_payment_view
+    # Tabel memuat hutang & tombol "Bayar Sekarang" langsung hidup.
+    assert payment.expense_table.rowCount() == 1
+    assert payment.pay_button.isEnabled()
+
+    payment.pay_button.click()
+    qt_application.processEvents()
+
+    full_app_session.refresh(expense)
+    # Lunas penuh otomatis dari akun Kas, status berubah Tunai.
+    assert expense.paid_amount == expense.amount == 50_000
+    assert expense.payment_status == "CASH"
+    assert payment.expense_table.rowCount() == 0
+    assert not payment.pay_button.isEnabled()
+    view.close()
+
+
+def test_expense_payment_dp_status_hint_and_search(
+    qt_application: QApplication, full_app_session: Session
+):
+    owner = full_app_session.query(User).filter_by(username="owner").one()
+    fin_service = FinancialService(full_app_session)
+    expense_account = next(
+        account
+        for account in fin_service.accounts("EXPENSE")
+        if account.code != "5000"
+    )
+    kas = next(
+        account
+        for account in fin_service.accounts("ASSET")
+        if account.code == "1000"
+    )
+    fin_service.create_expense(
+        owner,
+        account_id=expense_account.id,
+        amount=90_000,
+        incurred_at=datetime.now().astimezone(),
+        payee="Vendor Sembako",
+        description="DP bahan baku",
+        due_date=date.today() + timedelta(days=10),
+        initial_payment=30_000,
+        payment_account_id=kas.id,
+        payment_method="CASH",
+        payment_status="DP",
+    )
+
+    user_mgmt = UserManagementService(
+        full_app_session, UserRepository(full_app_session)
+    )
+    view = UserManagementView(owner, user_mgmt)
+    view.show()
+    qt_application.processEvents()
+
+    payment = view.expense_payment_view
+    assert payment.expense_table.rowCount() == 1
+    status_item = payment.expense_table.item(0, 7)
+    assert status_item.text() == "DP"
+    # Hint jumlah DP yang sudah dibayarkan tampil saat hover/fokus.
+    assert (
+        "yang telah dibayarkan: Rp 30.000,00" in status_item.toolTip()
+    )
+
+    payment.expense_search.input.setText("Vendor Sembako")
+    payment.expense_search.button.click()
+    assert not payment.expense_table.isRowHidden(0)
+    payment.expense_search.input.setText("tidak-ada")
+    payment.expense_search.button.click()
+    assert payment.expense_table.isRowHidden(0)
+    view.close()
+
+
+def test_report_center_finance_tabs(
+    qt_application: QApplication, full_app_session: Session
+):
+    class _SalesStub(QWidget):
+        def __init__(self):
+            super().__init__()
+            self.refreshed = 0
+
+        def refresh_report(self):
+            self.refreshed += 1
+
+    class _AttendanceStub(QWidget):
+        def __init__(self):
+            super().__init__()
+            self.refreshed = 0
+
+        def refresh(self):
+            self.refreshed += 1
+
+    owner = full_app_session.query(User).filter_by(username="owner").one()
+    store = full_app_session.query(Store).filter_by(code="MAIN").one()
+    fin_service = FinancialService(full_app_session)
+    kas = next(
+        account
+        for account in fin_service.accounts("ASSET")
+        if account.code == "1000"
+    )
+    expense_account = next(
+        account
+        for account in fin_service.accounts("EXPENSE")
+        if account.code != "5000"
+    )
+
+    fin_service.create_expense(
+        owner,
+        account_id=expense_account.id,
+        amount=60_000,
+        incurred_at=datetime.now().astimezone(),
+        payee="Operator Listrik",
+        description="Token listrik",
+        due_date=None,
+        initial_payment=60_000,
+        payment_account_id=kas.id,
+        payment_method="CASH",
+        payment_status="CASH",
+    )
+    fin_service.create_expense(
+        owner,
+        account_id=expense_account.id,
+        amount=45_000,
+        incurred_at=datetime.now().astimezone(),
+        payee="Vendor Air",
+        description="Tagihan air",
+        due_date=date.today() + timedelta(days=5),
+        initial_payment=0,
+        payment_account_id=None,
+        payment_method="CASH",
+        payment_status="HUTANG",
+    )
+
+    shift = Shift(
+        store_id=store.id,
+        cashier_id=owner.id,
+        opened_at=datetime.now(),
+    )
+    full_app_session.add(shift)
+    full_app_session.flush()
+    sale_moment = datetime(2026, 10, 9, 12)
+    full_app_session.add_all(
+        [
+            Sale(
+                invoice_no="INV-RPT-1",
+                store_id=store.id,
+                shift_id=shift.id,
+                cashier_id=owner.id,
+                subtotal=90_000,
+                grand_total=90_000,
+                status="PAID",
+                created_at=sale_moment,
+            ),
+            Sale(
+                invoice_no="INV-RPT-2",
+                store_id=store.id,
+                shift_id=shift.id,
+                cashier_id=owner.id,
+                subtotal=35_000,
+                grand_total=35_000,
+                status="PAID",
+                created_at=sale_moment + timedelta(hours=1),
+            ),
+        ]
+    )
+    full_app_session.flush()
+
+    # Stok tipis: turunkan stok Susu Cokelat di bawah batas 5.
+    prod_susu = (
+        full_app_session.query(Product).filter_by(sku="SKU-SUSU-01").one()
+    )
+    prod_susu.stock_qty = 4
+    full_app_session.flush()
+
+    center = ReportCenterView(
+        sales_view=_SalesStub(),
+        attendance_view=_AttendanceStub(),
+        session=full_app_session,
+        actor=owner,
+    )
+    center.resize(1200, 800)
+    center.show()
+    qt_application.processEvents()
+
+    assert [
+        center.tabs.tabText(i) for i in range(center.tabs.count())
+    ] == [
+        "Penjualan",
+        "Pendapatan",
+        "Pengeluaran",
+        "Jumlah Hutang",
+        "Stok Tipis",
+        "Nilai Inventaris",
+        "Absensi Karyawan",
+        "Laporan Keuangan",
+        "Progress",
+    ]
+    assert center.tabs.currentIndex() == 0
+
+    # Pendapatan: opsi harian/bulanan/tahunan dengan rekap penjualan.
+    center.show_tab("Pendapatan")
+    qt_application.processEvents()
+    income = center.income_view
+    assert income.period_mode.currentData() == "day"
+    assert income.table.rowCount() == 1
+    assert income.table.item(0, 1).text() == "2"
+    assert income.table.item(0, 2).text() == rupiah(125_000)
+    income.period_mode.setCurrentIndex(1)
+    assert income.table.rowCount() == 1
+    assert income.table.item(0, 0).text() == "10-2026"
+    income.period_mode.setCurrentIndex(2)
+    assert income.table.item(0, 0).text() == "2026"
+    income.period_mode.setCurrentIndex(0)
+
+    # Pengeluaran: hanya pengeluaran kas berstatus Tunai.
+    center.show_tab("Pengeluaran")
+    qt_application.processEvents()
+    cash_view = center.cash_expense_view
+    assert cash_view.table.rowCount() == 1
+    assert cash_view.table.item(0, 2).text() == "Operator Listrik"
+    assert cash_view.table.item(0, 4).text() == rupiah(60_000)
+
+    # Jumlah Hutang: pengeluaran berstatus Hutang/DP.
+    center.show_tab("Jumlah Hutang")
+    qt_application.processEvents()
+    debt = center.debt_view
+    assert debt.table.rowCount() == 1
+    assert debt.table.item(0, 0).text() == "Pengeluaran"
+    assert debt.table.item(0, 6).text() == rupiah(45_000)
+    assert rupiah(45_000) in debt.summary_label.text()
+
+    # Stok Tipis: barang dengan stok di bawah batas 5.
+    center.show_tab("Stok Tipis")
+    qt_application.processEvents()
+    low_stock = center.low_stock_view
+    assert low_stock.table.rowCount() == 1
+    assert low_stock.table.item(0, 0).text() == "SKU-SUSU-01"
+    assert low_stock.table.item(0, 3).text() == "5"
+    assert low_stock.table.item(0, 4).text() == "RENDAH"
+    assert low_stock.table.item(0, 5).text() == rupiah(4 * 5_000)
+
+    # Nilai Inventaris: stok x harga beli semua barang.
+    center.show_tab("Nilai Inventaris")
+    qt_application.processEvents()
+    inventory = center.inventory_value_view
+    assert inventory.table.rowCount() == 2
+    expected_value = (50 * 8_000) + (4 * 5_000)
+    assert rupiah(expected_value) in inventory.summary_label.text()
+
+    # Laporan Keuangan: empat pernyataan standar, buku sudah aktif.
+    center.show_tab("Laporan Keuangan")
+    qt_application.processEvents()
+    statement = center.financial_statement_view
+    assert statement.tabs.count() == 4
+    assert not statement.status_label.text()
+    assert statement.panes["profit_loss"].table.rowCount() > 0
+    assert statement.panes["balance_sheet"].table.rowCount() > 0
+    assert statement.panes["cash_flow"].table.rowCount() > 0
+    assert statement.panes["trial_balance"].table.rowCount() > 0
+
+    # Progress: placeholder isi menyusul.
+    center.show_tab("Progress")
+    qt_application.processEvents()
+    assert center.progress_view is not None
+    assert center.tabs.currentIndex() == center.TAB_PROGRESS
+    center.close()
 
 
 def test_full_cashier_flow_and_checkout(qt_application: QApplication, full_app_session: Session, tmp_path: Path):

@@ -50,7 +50,7 @@ from app.services.cashier_daily_report_service import CashierDailyReportService
 from app.services.shift_service import ShiftService
 from app.services.payment_service import PaymentService, PaymentServiceError
 from app.utils.formatters import rupiah
-from app.ui.widgets import create_copyright_label
+from app.ui.widgets import TableSearchBar, create_copyright_label
 
 
 class CashierView(QWidget):
@@ -230,6 +230,10 @@ class CashierView(QWidget):
         )
         self.daily_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.daily_table.horizontalHeader().setStretchLastSection(True)
+        self.daily_search = TableSearchBar(
+            self.daily_table, "Cari transaksi..."
+        )
+        daily_layout.addWidget(self.daily_search)
         daily_layout.addWidget(self.daily_table)
         root.addWidget(daily_panel, 2)
 

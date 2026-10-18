@@ -24,9 +24,13 @@ from app.services.inventory_service import InventoryService
 from app.services.payment_settings_service import PaymentSettingsService
 from app.services.store_settings_service import StoreSettingsService
 from app.services.user_management_service import UserManagementService
-from app.ui.views.financial_view import FinancialView
+from app.ui.views.financial_view import (
+    ExpenseEntryView,
+    ExpensePaymentView,
+    FinancialView,
+)
 from app.ui.views.store_settings_view import StoreSettingsView
-from app.ui.widgets import create_dashboard_back_button
+from app.ui.widgets import TableSearchBar, create_dashboard_back_button
 
 
 class UserManagementView(QWidget):
@@ -59,7 +63,8 @@ class UserManagementView(QWidget):
         root.addLayout(header)
 
         # Konten jendela dibungkus tab: Pengaturan Toko, Modal Awal,
-        # Tambah Karyawan, Inventaris Toko, dan Seting Pembayaran Kasir.
+        # Catat Pengeluaran, Bayar Pengeluaran, Tambah Karyawan,
+        # Inventaris Toko, dan Seting Pembayaran Kasir.
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet(
             "QTabWidget::pane { border: 1px solid #3f3f46; "
@@ -163,6 +168,8 @@ class UserManagementView(QWidget):
             QTableWidget.SelectionBehavior.SelectRows
         )
         self.user_table.horizontalHeader().setStretchLastSection(True)
+        self.user_search = TableSearchBar(self.user_table, "Cari pengguna...")
+        right_column.addWidget(self.user_search)
         right_column.addWidget(self.user_table, 1)
 
         self.delete_button = QPushButton("Hapus Pengguna Terpilih")
@@ -204,9 +211,9 @@ class UserManagementView(QWidget):
         self.tabs.addTab(self._inventory_page, "Inventaris Toko")
 
         # Pengaturan toko digabung ke jendela ini: tab pertama
-        # "Pengaturan Toko", lalu "Modal Awal" (aktivasi pembukuan &
-        # saldo awal, dipindahkan dari jendela Laporan), tab terakhir
-        # "Seting Pembayaran Kasir".
+        # "Pengaturan Toko", lalu "Modal Awal" (input Modal + aktivasi
+        # Laporan Keuangan), "Catat Pengeluaran", "Bayar Pengeluaran",
+        # tab terakhir "Seting Pembayaran Kasir".
         self.store_settings = StoreSettingsView(
             actor,
             StoreSettingsService(user_management.session),
@@ -219,15 +226,31 @@ class UserManagementView(QWidget):
         self.store_settings.setAttribute(Qt.WA_TransparentForMouseEvents)
         self.tabs.insertTab(0, self.store_settings.store_tab, "Pengaturan Toko")
 
-        # Tab "Modal Awal": tampilan jendela penuh dipakai apa adanya,
-        # hanya chrome-nya (tombol kembali & judul jendela) yang
-        # disembunyikan karena tab sudah punya judul sendiri.
+        # Tab "Modal Awal": cukup input saldo Modal + checkbox
+        # "Aktifkan Laporan Keuangan" (fitur premium/trial).
         self.financial_view = FinancialView(
             actor, user_management.session, read_only=read_only
         )
-        self.financial_view.back_button.hide()
-        self.financial_view.heading_label.hide()
         self.tabs.insertTab(1, self.financial_view, "Modal Awal")
+
+        # Tab pengeluaran memakai service yang sama dengan Modal Awal.
+        self.expense_entry_view = ExpenseEntryView(
+            actor,
+            self.financial_view.service,
+            read_only=read_only,
+        )
+        self.tabs.insertTab(2, self.expense_entry_view, "Catat Pengeluaran")
+        self.expense_payment_view = ExpensePaymentView(
+            actor,
+            self.financial_view.service,
+            read_only=read_only,
+        )
+        self.tabs.insertTab(3, self.expense_payment_view, "Bayar Pengeluaran")
+        # Aktivasi di tab Modal Awal langsung menghidupkan kedua tab
+        # pengeluaran.
+        self.financial_view.books_activated.connect(
+            self._refresh_expense_views
+        )
 
         self.tabs.addTab(
             self.store_settings.payment_tab, "Seting Pembayaran Kasir"
@@ -238,14 +261,23 @@ class UserManagementView(QWidget):
         self.refresh_inventory()
 
     def _on_tab_changed(self, index: int):
-        if 0 <= index < self.tabs.count() and self.tabs.widget(
-            index
-        ) is getattr(self, "financial_view", None):
-            self.refresh_financial()
+        if not (0 <= index < self.tabs.count()):
+            return
+        widget = self.tabs.widget(index)
+        if widget is getattr(self, "financial_view", None):
+            self.financial_view.refresh_view()
+        elif widget is getattr(self, "expense_entry_view", None):
+            self.expense_entry_view.refresh_view()
+        elif widget is getattr(self, "expense_payment_view", None):
+            self.expense_payment_view.refresh_view()
+
+    def _refresh_expense_views(self):
+        self.expense_entry_view.refresh_view()
+        self.expense_payment_view.refresh_view()
 
     def refresh_financial(self):
         self.financial_view.refresh_view()
-        self.financial_view.refresh_report()
+        self._refresh_expense_views()
 
     def refresh_users(self):
         self._exit_edit_mode()
@@ -357,6 +389,8 @@ class UserManagementView(QWidget):
             QTableWidget.SelectionBehavior.SelectRows
         )
         self.inv_table.horizontalHeader().setStretchLastSection(True)
+        self.inv_search = TableSearchBar(self.inv_table, "Cari inventaris...")
+        right.addWidget(self.inv_search)
         right.addWidget(self.inv_table, 1)
 
         self.inv_edit_button = QPushButton("Edit Terpilih")

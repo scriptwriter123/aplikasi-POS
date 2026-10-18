@@ -1,0 +1,13 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "pos-python": {
+      "type": "local",
+      "command": [
+        "E:\\POS\\KASIR\\venv\\Scripts\\python.exe",
+        "E:\\POS\\KASIR\\mcp_server\\server.py"
+      ],
+      "enabled": true
+    }
+  }
+}

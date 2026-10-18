@@ -3,7 +3,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PySide6.QtWidgets import QApplication, QMessageBox, QTabWidget
+from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton, QTabWidget
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
@@ -133,15 +133,71 @@ def test_manajemen_toko_view_has_tabs(user_session: Session, qt_app):
     assert [tabs[0].tabText(i) for i in range(tabs[0].count())] == [
         "Pengaturan Toko",
         "Modal Awal",
+        "Catat Pengeluaran",
+        "Bayar Pengeluaran",
         "Tambah Karyawan",
         "Inventaris Toko",
         "Seting Pembayaran Kasir",
     ]
-    # Tab "Modal Awal" memakai FinancialView utuh; chrome jendelanya
-    # (tombol kembali & judul) disembunyikan karena tab punya judul sendiri.
+    # Tab "Modal Awal" = input Modal + checkbox aktivasi Laporan Keuangan.
     assert tabs[0].widget(1) is view.financial_view
-    assert view.financial_view.back_button.isHidden()
-    assert view.financial_view.heading_label.isHidden()
+    assert view.financial_view.activate_checkbox.text() == (
+        "Aktifkan Laporan Keuangan"
+    )
+    # Tab "Catat Pengeluaran" = form simpan; tab "Bayar Pengeluaran" =
+    # form pembayaran hutang.
+    assert tabs[0].widget(2) is view.expense_entry_view
+    assert tabs[0].widget(3) is view.expense_payment_view
+    assert [
+        button.text()
+        for button in view.expense_entry_view.findChildren(QPushButton)
+    ] == ["Simpan Pengeluaran", "Kosongkan"]
+    # Tab Bayar: input + tombol Cari di atas tabel, lalu Bayar Sekarang.
+    assert [
+        button.text()
+        for button in view.expense_payment_view.findChildren(QPushButton)
+    ] == ["Cari", "Bayar Sekarang"]
+    assert (
+        view.expense_payment_view.expense_search.input.placeholderText()
+        == "Cari pengeluaran..."
+    )
+    # Status Pembayaran di tab Catat: dropdown Tunai / Hutang / DP.
+    entry = view.expense_entry_view
+    assert [
+        entry.status_input.itemText(index)
+        for index in range(entry.status_input.count())
+    ] == ["Tunai", "Hutang", "DP"]
+    # Field Metode Pembayaran dihapus; Jumlah DP muncul hanya saat DP.
+    assert not hasattr(entry, "payment_method_input")
+    assert entry.dp_amount_input.isHidden()
+    entry.status_input.setCurrentIndex(2)
+    assert not entry.dp_amount_input.isHidden()
+    entry.status_input.setCurrentIndex(1)
+    assert entry.dp_amount_input.isHidden()
+    entry.status_input.setCurrentIndex(0)
+    # Tabel di tab Bayar: semua field pengeluaran berstatus Hutang/DP.
+    # Input di bawah tabel sudah dihapus (bayar otomatis dari Kas).
+    payment = view.expense_payment_view
+    assert not hasattr(payment, "amount_input")
+    assert not hasattr(payment, "sisa_input")
+    assert not hasattr(payment, "payment_account_input")
+    assert payment.expense_table.columnCount() == 9
+    assert [
+        payment.expense_table.horizontalHeaderItem(column).text()
+        for column in range(payment.expense_table.columnCount())
+    ] == [
+        "Tanggal",
+        "Kategori",
+        "Penerima",
+        "Keterangan",
+        "Total",
+        "Dibayar",
+        "Sisa",
+        "Status",
+        "Jatuh Tempo",
+    ]
+    # Tab "Keuangan" lama sudah dihapus.
+    assert not hasattr(view, "finance_operations_view")
     view.close()
 
 

@@ -110,6 +110,52 @@ class ReportService:
         )
         return list(self.session.scalars(statement))
 
+    def sales_summary(self, period: str) -> list[dict]:
+        """Rekap penjualan lunas dikelompokkan per hari/bulan/tahun."""
+        if period not in {"day", "month", "year"}:
+            raise ValueError(f"Jenis periode laporan tidak dikenal: {period}")
+        statement = (
+            select(Sale.created_at, Sale.grand_total)
+            .where(Sale.status == "PAID")
+            .order_by(Sale.created_at, Sale.id)
+        )
+        buckets: dict[str, dict] = {}
+        for created_at, grand_total in self.session.execute(statement):
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            local = created_at.astimezone()
+            if period == "day":
+                key = local.strftime("%d-%m-%Y")
+            elif period == "month":
+                key = local.strftime("%m-%Y")
+            else:
+                key = str(local.year)
+            bucket = buckets.setdefault(
+                key,
+                {"period": key, "transactions": 0, "revenue": 0},
+            )
+            bucket["transactions"] += 1
+            bucket["revenue"] += int(grand_total)
+        return list(reversed(list(buckets.values())))
+
+    def inventory_valuation(self) -> list[dict]:
+        """Nilai persediaan: stok x harga beli tiap barang (non-dihapus)."""
+        statement = (
+            select(Product)
+            .where(Product.deleted_at.is_(None))
+            .order_by(Product.sku)
+        )
+        return [
+            {
+                "sku": product.sku,
+                "name": product.name,
+                "stock_qty": product.stock_qty,
+                "purchase_price": product.purchase_price,
+                "value": product.stock_qty * product.purchase_price,
+            }
+            for product in self.session.scalars(statement)
+        ]
+
     def _sales_in_period(
         self,
         start: datetime,

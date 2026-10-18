@@ -18,7 +18,11 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.core.exceptions import AuthorizationError, ValidationError
 from app.models import Supplier
 from app.services.supplier_service import SupplierService
-from app.ui.widgets import create_copyright_label, create_dashboard_back_button
+from app.ui.widgets import (
+    TableSearchBar,
+    create_copyright_label,
+    create_dashboard_back_button,
+)
 
 
 class SupplierFormDialog(QDialog):
@@ -173,6 +177,10 @@ class SupplierView(QWidget):
         )
         self.supplier_table.horizontalHeader().setStretchLastSection(True)
         self.supplier_table.doubleClicked.connect(self._edit_selected_supplier)
+        self.supplier_search = TableSearchBar(
+            self.supplier_table, "Cari supplier..."
+        )
+        root.addWidget(self.supplier_search)
         root.addWidget(self.supplier_table, 1)
         root.addWidget(
             create_copyright_label(self),

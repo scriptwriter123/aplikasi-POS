@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
 import re
+import secrets
+import string
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -154,6 +156,41 @@ class UserManagementService:
         except Exception:
             self.session.rollback()
             raise
+
+    def reset_password(self, actor: User, user_id: int) -> str:
+        """Reset password karyawan yang lupa. Owner dapat mereset dan
+        memberikan password sementara baru kepada karyawan.
+
+        Mengembalikan password sementara (plain text) yang harus
+        diberikan langsung ke karyawan. Setelah reset, karyawan wajib
+        mengganti password pada login berikutnya.
+        """
+        self._require_owner(actor)
+        user = self.session.get(User, user_id)
+        if user is None or user.deleted_at is not None:
+            raise ValidationError("Pengguna tidak ditemukan.")
+        if user.role.name.upper() == "OWNER":
+            raise ValidationError("Akun OWNER tidak dapat direset passwordnya.")
+
+        # Generate password sementara acak 12 karakter
+        alphabet = string.ascii_letters + string.digits
+        new_password = "".join(secrets.choice(alphabet) for _ in range(12))
+
+        user.password_hash = hash_password(new_password)
+        user.must_change_password = True
+        user.failed_login_count = 0
+        user.locked_until = None
+        try:
+            self.session.commit()
+        except Exception:
+            self.session.rollback()
+            raise
+        # Expire semua objek di session agar query berikutnya (mis. login)
+        # selalu ambil data terbaru dari database, bukan dari identity map
+        # yang mungkin masih bernilai lama karena expire_on_commit=False.
+        self.session.expire_all()
+        self.session.refresh(user)
+        return new_password
 
     def _get_or_create_role(self, role_name: str) -> Role:
         role = self.session.scalar(

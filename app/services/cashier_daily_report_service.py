@@ -99,3 +99,15 @@ class CashierDailyReportService:
             )
         )
         return list(self.session.scalars(statement))
+
+    def reports_all(self) -> list[CashierDailyReport]:
+        """Semua laporan kasir harian, urut tanggal desc."""
+        statement = (
+            select(CashierDailyReport)
+            .join(User, User.id == CashierDailyReport.cashier_id)
+            .order_by(
+                CashierDailyReport.report_date.desc(),
+                User.full_name,
+            )
+        )
+        return list(self.session.scalars(statement))

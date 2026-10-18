@@ -17,6 +17,78 @@ class ReportService:
         cashier_id: int | None = None,
     ) -> list[dict]:
         sales = self._sales_in_period(start, end, cashier_id)
+        return self._serialize_sales(sales)
+
+    def all_sales(
+        self,
+        cashier_id: int | None = None,
+    ) -> list[dict]:
+        """Semua transaksi PAID, descending by created_at (terbaru dulu)."""
+        statement = (
+            select(Sale, User.full_name)
+            .join(User, User.id == Sale.cashier_id)
+            .where(Sale.status == "PAID")
+            .order_by(Sale.created_at.desc(), Sale.id.desc())
+        )
+        if cashier_id is not None:
+            statement = statement.where(Sale.cashier_id == cashier_id)
+        sales = list(self.session.execute(statement))
+        return self._serialize_sales(sales)
+
+    def all_profits(
+        self,
+        cashier_id: int | None = None,
+    ) -> list[dict]:
+        """Semua transaksi PAID dengan data profit, descending by created_at."""
+        statement = (
+            select(Sale, User.full_name)
+            .join(User, User.id == Sale.cashier_id)
+            .where(Sale.status == "PAID")
+            .order_by(Sale.created_at.desc(), Sale.id.desc())
+        )
+        if cashier_id is not None:
+            statement = statement.where(Sale.cashier_id == cashier_id)
+        sales = list(self.session.execute(statement))
+
+        rows = []
+        for sale, cashier_name in sales:
+            items = self.session.scalars(
+                select(SaleItem).where(SaleItem.sale_id == sale.id)
+            )
+            sale_items = list(items)
+            missing_cost_count = sum(
+                item.unit_cost is None for item in sale_items
+            )
+            if not sale_items:
+                missing_cost_count = 1
+            known_cost = sum(
+                item.qty * item.unit_cost
+                for item in sale_items
+                if item.unit_cost is not None
+            )
+            known_profit = sum(
+                item.line_total - item.qty * item.unit_cost
+                for item in sale_items
+                if item.unit_cost is not None
+            )
+            rows.append(
+                {
+                    "sale": sale,
+                    "invoice_no": sale.invoice_no,
+                    "created_at": sale.created_at,
+                    "cashier_name": cashier_name,
+                    "revenue": sale.grand_total,
+                    "known_cost": known_cost,
+                    "known_profit": known_profit,
+                    "missing_cost_count": missing_cost_count,
+                }
+            )
+        return rows
+
+    def _serialize_sales(
+        self,
+        sales: list[tuple],
+    ) -> list[dict]:
         if not sales:
             return []
 
@@ -187,3 +259,90 @@ class ReportService:
         if value.tzinfo is None:
             value = value.astimezone()
         return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+    def sales_with_filter(
+        self,
+        year: int | None = None,
+        month: int | None = None,
+        day: int | None = None,
+        hour: int | None = None,
+        day_name: str | None = None,
+        cashier_id: int | None = None,
+    ) -> list[dict]:
+        """Filter transaksi PAID berdasarkan komponen tanggal/waktu.
+
+        Parameter yang None diabaikan. day_name berupa nama hari Indonesia
+        (senin, selasa, ..., minggu). Hasil diurutkan descending (terbaru dulu).
+        """
+        statement = (
+            select(Sale, User.full_name)
+            .join(User, User.id == Sale.cashier_id)
+            .where(Sale.status == "PAID")
+        )
+        conditions = []
+        if year is not None:
+            conditions.append(
+                self._year_condition(Sale.created_at, year)
+            )
+        if month is not None:
+            conditions.append(
+                self._month_condition(Sale.created_at, month)
+            )
+        if day is not None:
+            conditions.append(
+                self._day_condition(Sale.created_at, day)
+            )
+        if hour is not None:
+            conditions.append(
+                self._hour_condition(Sale.created_at, hour)
+            )
+        if day_name is not None:
+            conditions.append(
+                self._day_name_condition(Sale.created_at, day_name)
+            )
+        if cashier_id is not None:
+            conditions.append(Sale.cashier_id == cashier_id)
+        if conditions:
+            statement = statement.where(*conditions)
+        statement = statement.order_by(Sale.created_at.desc(), Sale.id.desc())
+        sales = list(self.session.execute(statement))
+        return self._serialize_sales(sales)
+
+    @staticmethod
+    def _year_condition(column, year: int):
+        from sqlalchemy import extract
+        return extract("year", column) == year
+
+    @staticmethod
+    def _month_condition(column, month: int):
+        from sqlalchemy import extract
+        return extract("month", column) == month
+
+    @staticmethod
+    def _day_condition(column, day: int):
+        from sqlalchemy import extract
+        return extract("day", column) == day
+
+    @staticmethod
+    def _hour_condition(column, hour: int):
+        from sqlalchemy import extract
+        return extract("hour", column) == hour
+
+    @staticmethod
+    def _day_name_condition(column, day_name: str):
+        from sqlalchemy import func
+        # SQLite: strftime('%w', col) = 0(Minggu) s.d 6(Sabtu)
+        # Pemetaan nama hari Indonesia ke nomor strftime %w
+        day_map = {
+            "minggu": 0,
+            "senin": 1,
+            "selasa": 2,
+            "rabu": 3,
+            "kamis": 4,
+            "jumat": 5,
+            "sabtu": 6,
+        }
+        target = day_map.get(day_name.strip().lower())
+        if target is None:
+            return func.strftime("%w", column) == "-1"  # tidak cocok
+        return func.strftime("%w", column) == str(target)

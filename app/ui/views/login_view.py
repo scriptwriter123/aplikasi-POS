@@ -3,6 +3,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
+    QDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -13,7 +14,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.core.exceptions import ValidationError
+from app.core.exceptions import AuthenticationError, PasswordChangeRequired, ValidationError
+from app.core.security import hash_password, verify_password
 from app.models import Store
 from app.services.owner_setup_service import OwnerSetupService
 from app.ui.theme import PALETTE, add_card_shadow, apply_theme
@@ -252,7 +254,119 @@ class LoginView(QWidget):
                 self.username.text().strip(),
                 self.password.text(),
             )
+        except PasswordChangeRequired as exc:
+            dialog = PasswordChangeDialog(exc.user, self)
+            if dialog.exec():
+                self.login_success.emit(exc.user)
+            return
         except Exception as exc:
             QMessageBox.warning(self, "Login gagal", str(exc))
             return
         self.login_success.emit(user)
+
+
+class PasswordChangeDialog(QDialog):
+    """Dialog untuk mengganti password sementara saat login pertama kali."""
+
+    def __init__(self, user, parent=None):
+        super().__init__(parent)
+        self.user = user
+        self.setWindowTitle("Ubah Password")
+        self.setModal(True)
+        self.resize(400, 320)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(16)
+
+        title = QLabel("Password Sementara")
+        title.setStyleSheet("font-size: 14px; color: #a1a1aa;")
+        layout.addWidget(title)
+
+        self.temp_password = QLineEdit()
+        self.temp_password.setEchoMode(QLineEdit.Password)
+        self.temp_password.setPlaceholderText("Masukkan password sementara")
+        layout.addWidget(self.temp_password)
+
+        new_label = QLabel("Password Baru")
+        new_label.setStyleSheet("font-size: 14px; color: #a1a1aa;")
+        layout.addWidget(new_label)
+
+        self.new_password = QLineEdit()
+        self.new_password.setEchoMode(QLineEdit.Password)
+        self.new_password.setPlaceholderText("Minimal 8 karakter")
+        layout.addWidget(self.new_password)
+
+        confirm_label = QLabel("Konfirmasi Password Baru")
+        confirm_label.setStyleSheet("font-size: 14px; color: #a1a1aa;")
+        layout.addWidget(confirm_label)
+
+        self.confirm_password = QLineEdit()
+        self.confirm_password.setEchoMode(QLineEdit.Password)
+        self.confirm_password.setPlaceholderText("Masukkan ulang password baru")
+        layout.addWidget(self.confirm_password)
+
+        self.error_label = QLabel()
+        self.error_label.setStyleSheet("color: #f87171; font-size: 12px;")
+        self.error_label.hide()
+        layout.addWidget(self.error_label)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(10)
+        cancel_btn = QPushButton("Batal")
+        cancel_btn.setStyleSheet(
+            "QPushButton { background: #4b5563; color: white; border: none; "
+            "border-radius: 6px; padding: 8px 24px; font-weight: 600; }"
+            "QPushButton:hover { background: #6b7280; }"
+        )
+        cancel_btn.clicked.connect(self.reject)
+        btn_layout.addWidget(cancel_btn)
+
+        save_btn = QPushButton("Simpan")
+        save_btn.setStyleSheet(
+            "QPushButton { background: #007acc; color: white; border: none; "
+            "border-radius: 6px; padding: 8px 24px; font-weight: 600; }"
+            "QPushButton:hover { background: #0098ff; }"
+        )
+        save_btn.clicked.connect(self._save)
+        btn_layout.addWidget(save_btn)
+        layout.addLayout(btn_layout)
+
+    def _save(self):
+        temp = self.temp_password.text()
+        new_pw = self.new_password.text()
+        confirm = self.confirm_password.text()
+
+        if not temp:
+            self._show_error("Password sementara wajib diisi.")
+            return
+        if not verify_password(temp, self.user.password_hash):
+            self._show_error("Password sementara tidak sesuai.")
+            return
+        if len(new_pw) < 8:
+            self._show_error("Password baru minimal 8 karakter.")
+            return
+        if new_pw != confirm:
+            self._show_error("Konfirmasi password tidak cocok.")
+            return
+
+        self.user.password_hash = hash_password(new_pw)
+        self.user.must_change_password = False
+        self.user.failed_login_count = 0
+        self.user.locked_until = None
+
+        from app.models import User as _User
+        from sqlalchemy.orm import Session as _Session
+
+        try:
+            self.user.session.commit()
+        except Exception:
+            self.user.session.rollback()
+            self._show_error("Gagal menyimpan password baru.")
+            return
+
+        self.accept()
+
+    def _show_error(self, message: str):
+        self.error_label.setText(message)
+        self.error_label.show()

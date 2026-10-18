@@ -72,6 +72,7 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     failed_login_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
 class Store(Base, TimestampMixin, SoftDeleteMixin):

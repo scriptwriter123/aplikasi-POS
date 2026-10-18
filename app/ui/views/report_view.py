@@ -3,18 +3,14 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QComboBox,
     QDialog,
     QDateEdit,
     QDateTimeEdit,
     QFileDialog,
-    QFormLayout,
     QHBoxLayout,
     QLabel,
     QMessageBox,
     QPushButton,
-    QSpinBox,
-    QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -60,8 +56,8 @@ class ReportView(QWidget):
         )
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(32, 26, 32, 30)
-        root.setSpacing(14)
+        root.setContentsMargins(20, 20, 20, 10)
+        root.setSpacing(4)
 
         header = QHBoxLayout()
         self.back_button = create_dashboard_back_button(self)
@@ -75,43 +71,30 @@ class ReportView(QWidget):
         header.addStretch(1)
         root.addLayout(header)
 
-        filters = QFormLayout()
-        self.period_mode = QComboBox()
-        self.period_mode.addItem("Harian", "day")
-        self.period_mode.addItem("Bulanan", "month")
-        self.period_mode.addItem("Tahunan", "year")
-        self.period_mode.addItem("Custom", "custom")
-        self.period_mode.setFixedWidth(220)
-        self.period_mode.currentIndexChanged.connect(self._change_period_mode)
-        self.period_stack = QStackedWidget()
-        self.period_stack.setFixedWidth(self.period_mode.width())
-        self._create_period_pages()
-        self.daily_date.dateChanged.connect(self._update_period_heading)
-        self.monthly_date.dateChanged.connect(self._update_period_heading)
-        self.yearly_year.valueChanged.connect(self._update_period_heading)
-        self.custom_granularity.currentIndexChanged.connect(
-            self._update_period_heading
+        # Tombol aksi dipindahkan ke bawah dan ditengah
+        btn_style = (
+            "QPushButton { font-size: 12px; padding: 4px 14px; "
+            "min-width: 90px; }"
         )
-        self.custom_hour.dateTimeChanged.connect(self._update_period_heading)
-        self.custom_date.dateChanged.connect(self._update_period_heading)
-        self.custom_month.dateChanged.connect(self._update_period_heading)
-        self.custom_year.valueChanged.connect(self._update_period_heading)
-        filters.addRow("Jenis periode", self.period_mode)
-        filters.addRow("Pilih periode", self.period_stack)
-        root.addLayout(filters)
-
-        action_row = QHBoxLayout()
         self.show_button = QPushButton("Tampilkan Laporan")
+        self.show_button.setStyleSheet(btn_style)
         self.show_button.clicked.connect(self.refresh_report)
         self.print_button = QPushButton("Cetak")
+        self.print_button.setStyleSheet(btn_style)
         self.print_button.clicked.connect(self._print_report)
         self.save_button = QPushButton("Simpan")
+        self.save_button.setStyleSheet(btn_style)
         self.save_button.clicked.connect(self._save_report)
-        action_row.addWidget(self.show_button)
-        action_row.addStretch(1)
-        action_row.addWidget(self.print_button)
-        action_row.addWidget(self.save_button)
-        root.addLayout(action_row)
+
+        button_row = QHBoxLayout()
+        button_row.setContentsMargins(0, 8, 0, 0)
+        button_row.setSpacing(15)
+        button_row.addStretch(1)
+        button_row.addWidget(self.show_button)
+        button_row.addWidget(self.print_button)
+        button_row.addWidget(self.save_button)
+        button_row.addStretch(1)
+        root.addLayout(button_row)
 
         self.summary_label = QLabel()
         self.summary_label.setWordWrap(True)
@@ -122,6 +105,7 @@ class ReportView(QWidget):
         self.warning_label = QLabel()
         self.warning_label.setWordWrap(True)
         self.warning_label.setStyleSheet("color: #fdba74;")
+        self.warning_label.hide()
         root.addWidget(self.warning_label)
 
         self.cashier_reports_heading = QLabel("Laporan Kasir Harian")
@@ -177,134 +161,63 @@ class ReportView(QWidget):
         root.addWidget(self.report_search)
         root.addWidget(self.report_table, 1)
         self.report_search.setVisible(report_type != "sales")
-        self._update_period_heading()
         self.refresh_report()
 
-    def _create_period_pages(self):
-        self.daily_date = QDateEdit()
-        self.daily_date.setCalendarPopup(True)
-        self.daily_date.setDisplayFormat("dd MMMM yyyy")
-        self.daily_date.setDate(datetime.now().astimezone().date())
-
-        self.monthly_date = QDateEdit()
-        self.monthly_date.setCalendarPopup(True)
-        self.monthly_date.setDisplayFormat("MMMM yyyy")
-        self.monthly_date.setDate(self.daily_date.date())
-
-        self.yearly_year = QSpinBox()
-        self.yearly_year.setRange(2000, 9998)
-        self.yearly_year.setValue(self.daily_date.date().year())
-
-        self.period_stack.addWidget(self.daily_date)
-        self.period_stack.addWidget(self.monthly_date)
-        self.period_stack.addWidget(self.yearly_year)
-
-        custom_page = QWidget()
-        custom_layout = QVBoxLayout(custom_page)
-        custom_layout.setContentsMargins(0, 0, 0, 0)
-        self.custom_granularity = QComboBox()
-        self.custom_granularity.addItem("Jam tertentu", "hour")
-        self.custom_granularity.addItem("Tanggal tertentu", "day")
-        self.custom_granularity.addItem("Bulan tertentu", "month")
-        self.custom_granularity.addItem("Tahun tertentu", "year")
-        self.custom_granularity.currentIndexChanged.connect(
-            self._change_custom_granularity
+    def _populate_cashier_daily_reports_all(self):
+        reports = self.cashier_daily_reports.reports_all()
+        self.cashier_reports_table.setRowCount(len(reports))
+        for row_index, report in enumerate(reports):
+            values = (
+                report.report_date.strftime("%d-%m-%Y"),
+                report.cashier.full_name,
+                str(report.sales_count),
+                rupiah(report.sales_total),
+                report.notes or "-",
+            )
+            for column_index, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                self.cashier_reports_table.setItem(row_index, column_index, item)
+            details_button = QPushButton("Rincian Transaksi")
+            details_button.setStyleSheet(PRIMARY_BUTTON_STYLE)
+            details_button.clicked.connect(
+                lambda _checked=False, cashier_report=report:
+                    self._open_cashier_report_details(cashier_report)
+            )
+            self.cashier_reports_table.setCellWidget(
+                row_index,
+                5,
+                details_button,
+            )
+        self.cashier_reports_table.resizeColumnsToContents()
+        self.cashier_reports_table.setColumnWidth(5, 160)
+        self.cashier_reports_summary.setText(
+            f"{len(reports)} laporan kasir."
+            if reports
+            else "Belum ada laporan kasir."
         )
-        self.custom_stack = QStackedWidget()
-
-        self.custom_hour = QDateTimeEdit()
-        self.custom_hour.setCalendarPopup(True)
-        self.custom_hour.setDisplayFormat("dd MMM yyyy HH:00")
-        self.custom_hour.setDateTime(datetime.now().astimezone())
-        self.custom_date = QDateEdit()
-        self.custom_date.setCalendarPopup(True)
-        self.custom_date.setDisplayFormat("dd MMMM yyyy")
-        self.custom_date.setDate(self.daily_date.date())
-        self.custom_month = QDateEdit()
-        self.custom_month.setCalendarPopup(True)
-        self.custom_month.setDisplayFormat("MMMM yyyy")
-        self.custom_month.setDate(self.daily_date.date())
-        self.custom_year = QSpinBox()
-        self.custom_year.setRange(2000, 9998)
-        self.custom_year.setValue(self.daily_date.date().year())
-
-        for widget in (
-            self.custom_hour,
-            self.custom_date,
-            self.custom_month,
-            self.custom_year,
-        ):
-            self.custom_stack.addWidget(widget)
-        custom_layout.addWidget(self.custom_granularity)
-        custom_layout.addWidget(self.custom_stack)
-        self.period_stack.addWidget(custom_page)
-
-    def _change_period_mode(self, index: int):
-        self.period_stack.setCurrentIndex(index)
-        self._update_period_heading()
-
-    def _change_custom_granularity(self, index: int):
-        self.custom_stack.setCurrentIndex(index)
-
-    def _update_period_heading(self, *_args):
-        try:
-            _start, _end, period_label = self._period_bounds()
-        except (ValueError, TypeError):
-            return
-        period_names = {
-            "day": "Harian",
-            "month": "Bulanan",
-            "year": "Tahunan",
-            "custom": "Custom",
-        }
-        period_name = period_names.get(self.period_mode.currentData(), "Custom")
-        self.heading_label.setText(
-            f"{self.title_text} {period_name} — {period_label}"
-        )
-
-    def _period_bounds(self):
-        mode = self.period_mode.currentData()
-        if mode == "day":
-            return calculate_period_range(
-                "day",
-                self.daily_date.date().toPython(),
-            )
-        if mode == "month":
-            return calculate_period_range(
-                "month",
-                self.monthly_date.date().toPython(),
-            )
-        if mode == "year":
-            return calculate_period_range(
-                "year",
-                datetime(self.yearly_year.value(), 1, 1),
-            )
-        granularity = self.custom_granularity.currentData()
-        if granularity == "hour":
-            selected = self.custom_hour.dateTime().toPython()
-        elif granularity == "day":
-            selected = self.custom_date.date().toPython()
-        elif granularity == "month":
-            selected = self.custom_month.date().toPython()
-        else:
-            selected = datetime(self.custom_year.value(), 1, 1)
-        return calculate_period_range(granularity, selected)
 
     def refresh_report(self):
         try:
-            start, end, period_label = self._period_bounds()
+            # Default ke hari ini
+            now = datetime.now(timezone.utc).astimezone()
             if self.report_type == "sales":
-                rows = self.report_service.sales(start, end)
-                self._populate_sales_report(rows, period_label)
-                self._populate_cashier_daily_reports(start, end)
+                rows = self.report_service.sales_with_filter(
+                    year=now.year,
+                    month=now.month,
+                    day=now.day,
+                )
+                self._populate_sales_report(rows, "Hari Ini")
+                self._populate_cashier_daily_reports_all()
             else:
-                rows = self.report_service.profits(start, end)
-                self._populate_profit_report(rows, period_label)
+                rows = self.report_service.all_profits()
+                self._populate_profit_report(rows, "Semua")
         except (SQLAlchemyError, ValueError, TypeError) as exc:
             self.report_data = None
             self.report_table.setRowCount(0)
             self.summary_label.clear()
             self.warning_label.clear()
+            self.warning_label.hide()
             self.print_button.setEnabled(False)
             self.save_button.setEnabled(False)
             QMessageBox.warning(self, "Laporan gagal dimuat", str(exc))
@@ -411,7 +324,7 @@ class ReportView(QWidget):
         total = sum(row["revenue"] for row in rows)
         summary = (
             f"Jumlah transaksi: {len(rows)}    |    "
-            f"Total penjualan: {rupiah(total)}"
+            f"Total pendapatan transaksi hari ini: {rupiah(total)}"
         )
         self._set_report(
             headers,
@@ -482,7 +395,11 @@ class ReportView(QWidget):
         warning: str,
     ):
         self.summary_label.setText(summary)
-        self.warning_label.setText(warning)
+        if warning:
+            self.warning_label.setText(warning)
+            self.warning_label.show()
+        else:
+            self.warning_label.hide()
         self.report_table.setColumnCount(len(headers))
         self.report_table.setHorizontalHeaderLabels(headers)
         self.report_table.setRowCount(len(rows))

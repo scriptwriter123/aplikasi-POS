@@ -5,6 +5,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from PySide6.QtWidgets import (
     QComboBox,
     QDateEdit,
+    QDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -47,6 +48,7 @@ class UserManagementView(QWidget):
         super().__init__(parent)
         self.actor = actor
         self.user_management = user_management
+        self._show_password = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(32, 28, 32, 32)
@@ -105,8 +107,8 @@ class UserManagementView(QWidget):
 
         left_column = QVBoxLayout()
         left_column.setSpacing(12)
-        form_layout = QFormLayout()
-        form_layout.setFieldGrowthPolicy(
+        self.form_layout = QFormLayout()
+        self.form_layout.setFieldGrowthPolicy(
             QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
         )
         self.username_input = QLineEdit()
@@ -129,15 +131,15 @@ class UserManagementView(QWidget):
         self.confirm_password_input = QLineEdit()
         self.confirm_password_input.setEchoMode(QLineEdit.EchoMode.Password)
 
-        form_layout.addRow("Username", self.username_input)
-        form_layout.addRow("Nama lengkap", self.full_name_input)
-        form_layout.addRow("No. WA", self.wa_input)
-        form_layout.addRow("Jabatan", self.role_input)
-        form_layout.addRow("Password", self.password_input)
-        form_layout.addRow("Ulangi password", self.confirm_password_input)
-        left_column.addLayout(form_layout)
+        self.form_layout.addRow("Username", self.username_input)
+        self.form_layout.addRow("Nama lengkap", self.full_name_input)
+        self.form_layout.addRow("No. WA", self.wa_input)
+        self.form_layout.addRow("Jabatan", self.role_input)
+        self.form_layout.addRow("Password", self.password_input)
+        self.form_layout.addRow("Ulangi password", self.confirm_password_input)
+        left_column.addLayout(self.form_layout)
 
-        self.create_button = QPushButton("Tambah Pengguna")
+        self.create_button = QPushButton("Tambah Karyawan")
         self.create_button.setStyleSheet(
             "QPushButton { background: #007acc; color: white; border: none; "
             "border-radius: 8px; padding: 10px 16px; font-weight: 600; }"
@@ -153,13 +155,15 @@ class UserManagementView(QWidget):
         left_column.addStretch(1)
         content.addLayout(left_column, 1)
 
+        self.role_input.textChanged.connect(self._toggle_password_visibility)
+
         right_column = QVBoxLayout()
         right_column.setSpacing(12)
 
-        right_column.addWidget(QLabel("Pengguna terdaftar"))
-        self.user_table = QTableWidget(0, 4)
+        right_column.addWidget(QLabel("Daftar Karyawan"))
+        self.user_table = QTableWidget(0, 5)
         self.user_table.setHorizontalHeaderLabels(
-            ["Nama", "Username", "Jabatan", "No. WA"]
+            ["Nama", "Username", "Jabatan", "No. WA", "Password"]
         )
         self.user_table.setEditTriggers(
             QTableWidget.EditTrigger.NoEditTriggers
@@ -201,6 +205,24 @@ class UserManagementView(QWidget):
         action_row.addWidget(self.edit_button)
         action_row.addWidget(self.cancel_edit_button)
         action_row.addWidget(self.delete_button)
+        self.password_toggle_button = QPushButton("Tampilkan Password")
+        self.password_toggle_button.setStyleSheet(
+            "QPushButton { background: #4b5563; color: white; border: none; "
+            "border-radius: 8px; padding: 8px 14px; font-weight: 600; }"
+            "QPushButton:hover { background: #6b7280; }"
+        )
+        self.password_toggle_button.clicked.connect(
+            self._toggle_password_column
+        )
+        action_row.addWidget(self.password_toggle_button)
+        self.reset_password_button = QPushButton("Reset Password")
+        self.reset_password_button.setStyleSheet(
+            "QPushButton { background: #dc2626; color: white; border: none; "
+            "border-radius: 8px; padding: 8px 14px; font-weight: 600; }"
+            "QPushButton:hover { background: #ef4444; }"
+        )
+        self.reset_password_button.clicked.connect(self._reset_password)
+        action_row.addWidget(self.reset_password_button)
         right_column.addLayout(action_row)
 
         content.addLayout(right_column, 2)
@@ -286,11 +308,15 @@ class UserManagementView(QWidget):
         self.user_ids = []
         for row, user in enumerate(users):
             self.user_ids.append(user.id)
+            pw_value = (
+                user.password_hash if self._show_password else "••••••••"
+            )
             values = (
                 user.full_name,
                 user.username,
                 user.role.name,
                 user.whatsapp or "",
+                pw_value,
             )
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
@@ -675,6 +701,43 @@ class UserManagementView(QWidget):
     def _cancel_edit(self):
         self.refresh_users()
 
+    def _toggle_password_column(self):
+        self._show_password = not self._show_password
+        if self._show_password:
+            self.password_toggle_button.setText("Sembunyi Password")
+        else:
+            self.password_toggle_button.setText("Tampilkan Password")
+        self.refresh_users()
+
+    def _reset_password(self):
+        row = self.user_table.currentRow()
+        if row < 0 or row >= len(self.user_ids):
+            QMessageBox.information(
+                self,
+                "Pilih karyawan",
+                "Pilih karyawan yang passwordnya akan direset.",
+            )
+            return
+        user_id = self.user_ids[row]
+        username = self.user_table.item(row, 1).text()
+        full_name = self.user_table.item(row, 0).text()
+
+        try:
+            new_password = self.user_management.reset_password(
+                self.actor, user_id
+            )
+        except (AuthorizationError, ValidationError, SQLAlchemyError) as exc:
+            QMessageBox.warning(
+                self, "Tidak dapat mereset password", str(exc)
+            )
+            return
+
+        dialog = ResetPasswordDialog(
+            full_name, username, new_password, self
+        )
+        if dialog.exec():
+            self.refresh_users()
+
     def _exit_edit_mode(self):
         if self._editing_row is None:
             return
@@ -749,3 +812,84 @@ class UserManagementView(QWidget):
             "Pengguna ditambahkan",
             "Akun pengguna berhasil dibuat.",
         )
+
+    def _toggle_password_visibility(self):
+        """Sembunyikan field password jika jabatan adalah OWNER."""
+        is_owner = "OWNER" in self.role_input.text().upper()
+        self.password_input.setVisible(not is_owner)
+        self.confirm_password_input.setVisible(not is_owner)
+        for i in range(self.form_layout.rowCount()):
+            label_item = self.form_layout.itemAt(
+                i, QFormLayout.ItemRole.LabelRole
+            )
+            if label_item and label_item.widget():
+                if label_item.widget().text() in ("Password", "Ulangi password"):
+                    label_item.widget().setVisible(not is_owner)
+
+
+class ResetPasswordDialog(QDialog):
+    """Dialog untuk menampilkan password sementara baru kepada owner
+    setelah mereset password karyawan."""
+
+    def __init__(self, full_name: str, username: str, new_password: str,
+                 parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Reset Password Berhasil")
+        self.setModal(True)
+        self.resize(420, 260)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(16)
+
+        info = QLabel(
+            f"Password sementara untuk <b>{full_name}</b> "
+            f"(@{username}) telah dibuat."
+        )
+        info.setWordWrap(True)
+        info.setStyleSheet("font-size: 14px; color: #ffffff;")
+        layout.addWidget(info)
+
+        pw_label = QLabel("Password sementara:")
+        pw_label.setStyleSheet("font-size: 13px; color: #a1a1aa;")
+        layout.addWidget(pw_label)
+
+        self.pw_input = QLineEdit(new_password)
+        self.pw_input.setReadOnly(True)
+        self.pw_input.setStyleSheet(
+            "font-size: 16px; font-family: monospace; "
+            "padding: 8px; background: #1a1a1e; color: #ffffff; "
+            "border: 1px solid #3f3f46; border-radius: 6px;"
+        )
+        layout.addWidget(self.pw_input)
+
+        copy_btn = QPushButton("Salin Password")
+        copy_btn.setStyleSheet(
+            "QPushButton { background: #007acc; color: white; border: none; "
+            "border-radius: 6px; padding: 8px 16px; font-weight: 600; }"
+            "QPushButton:hover { background: #0098ff; }"
+        )
+        copy_btn.clicked.connect(self._copy_password)
+        layout.addWidget(copy_btn)
+
+        hint = QLabel(
+            "Berikan password ini kepada karyawan. Karyawan wajib "
+            "mengganti password pada login berikutnya."
+        )
+        hint.setWordWrap(True)
+        hint.setStyleSheet("font-size: 12px; color: #a1a1aa;")
+        layout.addWidget(hint)
+
+        ok_btn = QPushButton("Selesai")
+        ok_btn.setStyleSheet(
+            "QPushButton { background: #007acc; color: white; border: none; "
+            "border-radius: 6px; padding: 8px 24px; font-weight: 600; }"
+            "QPushButton:hover { background: #0098ff; }"
+        )
+        ok_btn.clicked.connect(self.accept)
+        layout.addWidget(ok_btn, alignment=Qt.AlignmentFlag.AlignRight)
+
+    def _copy_password(self):
+        from PySide6.QtGui import QGuiApplication
+        clipboard = QGuiApplication.clipboard()
+        clipboard.setText(self.pw_input.text())

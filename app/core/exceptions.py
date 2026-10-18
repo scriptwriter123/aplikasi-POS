@@ -28,3 +28,9 @@ class LicenseExpiredError(POSException):
 
 class ValidationError(POSException):
     pass
+
+
+class PasswordChangeRequired(POSException):
+    """Dilemukan saat user login dengan password sementara dan wajib
+    mengganti password sebelum dapat menggunakan aplikasi."""
+    pass

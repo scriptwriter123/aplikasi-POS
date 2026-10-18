@@ -1,4 +1,5 @@
-from datetime import date
+from datetime import datetime, date
+import re
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -6,6 +7,7 @@ from PySide6.QtWidgets import (
     QDateEdit,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -81,55 +83,135 @@ class _ReportTab(QWidget):
 
 
 class IncomeReportView(_ReportTab):
-    """Tab "Pendapatan": rekap penjualan per harian/bulanan/tahunan."""
+    """Tab "Pendapatan": semua transaksi penjualan, terbaru dulu.
+
+    Default menampilkan seluruh transaksi PAID diurutkan descending
+    (terbaru pada atas). Kotak pencarian mendukung filter bahasa alami
+    Indonesia, contoh:
+
+      - "senin"           → hari Senin
+      - "tahun 2025"      → tahun 2025
+      - "bulan januari"   → bulan Januari
+      - "tanggal 15"      → tanggal 15
+      - "jam 14"          → pukul 14.00-14.59
+      - "hari senin tahun 2025" → gabungan filter
+      - "senin 2025 bulan desember jam 10" → gabungan lengkap
+
+    Kombinasi bebas; kolom yang tidak disebutkan diabaikan.
+    """
+
+    _HARI = {
+        "senin": 1, "selasa": 2, "rabu": 3, "kamis": 4,
+        "jumat": 5, "sabtu": 6, "minggu": 0,
+    }
+    _BULAN = {
+        "januari": 1, "februari": 2, "maret": 3, "april": 4,
+        "mei": 5, "juni": 6, "juli": 7, "agustus": 8,
+        "september": 9, "oktober": 10, "november": 11, "desember": 12,
+    }
 
     def __init__(self, session, parent=None):
         super().__init__(parent)
         self.report_service = ReportService(session)
 
         controls = QHBoxLayout()
-        controls.addWidget(QLabel("Tampilan data"))
-        self.period_mode = QComboBox()
-        self.period_mode.addItem("Harian", "day")
-        self.period_mode.addItem("Bulanan", "month")
-        self.period_mode.addItem("Tahunan", "year")
-        self.period_mode.setFixedWidth(220)
-        controls.addWidget(self.period_mode)
+        controls.setContentsMargins(0, 0, 0, 0)
+        controls.setSpacing(10)
+        controls.addWidget(QLabel("Cari / filter"))
+        self.filter_input = QLineEdit()
+        self.filter_input.setPlaceholderText(
+            "Contoh: hari senin tahun 2025, bulan januari jam 10, tanggal 15"
+        )
+        self.filter_input.setFixedWidth(420)
+        self.filter_input.textChanged.connect(self.refresh_report)
+        controls.addWidget(self.filter_input)
         controls.addStretch(1)
         self.root.insertLayout(0, controls)
 
-        self.period_mode.currentIndexChanged.connect(self.refresh_report)
         self.refresh_report()
+
+    def _parse_filter(self, text: str) -> dict:
+        """Ekstrak komponen filter dari teks input pengguna."""
+        result: dict = {}
+        t = text.lower().strip()
+        if not t:
+            return result
+
+        # Tahun: 4 digit
+        m = re.search(r"\b(\d{4})\b", t)
+        if m:
+            result["year"] = int(m.group(1))
+
+        # Bulan
+        for nama, nomor in self._BULAN.items():
+            if re.search(rf"\b{nama}\b", t):
+                result["month"] = nomor
+                break
+
+        # Hari (nama hari Indonesia)
+        for nama, nomor in self._HARI.items():
+            if re.search(rf"\b{nama}\b", t):
+                result["day_name"] = nama
+                break
+
+        # Tanggal: angka 1-31 yang bukan tahun
+        m = re.search(r"\b(\d{1,2})\b", t)
+        if m:
+            val = int(m.group(1))
+            if 1 <= val <= 31:
+                if re.search(r"\b(tanggal|tgl|hari)\b", t):
+                    result["day"] = val
+                elif "year" not in result:
+                    result["day"] = val
+
+        # Jam: kata "jam" diikuti angka 0-23
+        m = re.search(r"\bjam\b\s*(\d{1,2})\b", t)
+        if m:
+            val = int(m.group(1))
+            if 0 <= val <= 23:
+                result["hour"] = val
+
+        return result
 
     def refresh_report(self) -> None:
         try:
-            summaries = self.report_service.sales_summary(
-                self.period_mode.currentData()
+            parsed = self._parse_filter(self.filter_input.text())
+            rows = self.report_service.sales_with_filter(
+                year=parsed.get("year"),
+                month=parsed.get("month"),
+                day=parsed.get("day"),
+                hour=parsed.get("hour"),
+                day_name=parsed.get("day_name"),
             )
         except (ValueError, SQLAlchemyError) as exc:
-            self._set_headers(["Periode", "Transaksi", "Pendapatan (Rp)"])
+            self._set_headers(["Tanggal", "Invoice", "Kasir", "Total (Rp)"])
             self.summary_label.setText("")
-            self._set_status("error", f"Gagal memuat pendapatan: {exc}")
+            self._set_status("error", f"Gagal memuat laporan: {exc}")
             return
-        self._set_headers(["Periode", "Transaksi", "Pendapatan (Rp)"])
+
+        self._set_headers(["Tanggal", "Invoice", "Kasir", "Total (Rp)"])
         self._fill_rows(
             [
-                (row["period"], row["transactions"], rupiah(row["revenue"]))
-                for row in summaries
+                (
+                    row["created_at"].astimezone().strftime("%d-%m-%Y %H:%M"),
+                    row["invoice_no"],
+                    row["cashier_name"],
+                    rupiah(row["revenue"]),
+                )
+                for row in rows
             ]
         )
-        if summaries:
-            transactions = sum(row["transactions"] for row in summaries)
-            revenue = sum(row["revenue"] for row in summaries)
+        if rows:
+            transactions = len(rows)
+            revenue = sum(row["revenue"] for row in rows)
             self._set_status("muted", "")
             self.summary_label.setText(
-                f"Total pendapatan {rupiah(revenue)} dari "
-                f"{transactions} transaksi."
+                f"{transactions} transaksi · total {rupiah(revenue)}"
             )
         else:
             self.summary_label.setText("")
             self._set_status(
-                "muted", "Belum ada penjualan untuk ditampilkan."
+                "muted", "Belum ada transaksi yang cocok dengan filter."
             )
 
 

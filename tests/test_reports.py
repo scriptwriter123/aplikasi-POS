@@ -475,17 +475,9 @@ def test_cashier_daily_report_saves_totals_and_updates_existing_report(
 
     app = QApplication.instance() or QApplication([])
     view = ReportView(report_session, "sales")
-    assert view.period_stack.width() == view.period_mode.width()
     assert not view.back_button.icon().isNull()
     assert view.report_table.isHidden()
-    assert "Harian" in view.heading_label.text()
-    view.period_mode.setCurrentIndex(1)
-    assert "Bulanan" in view.heading_label.text()
-    view.period_mode.setCurrentIndex(2)
-    assert "Tahunan" in view.heading_label.text()
-    view.period_mode.setCurrentIndex(0)
-    view.daily_date.setDate(view.daily_date.date().addDays(-1))
-    assert view.daily_date.date().toString("dd-MM-yyyy") in view.heading_label.text()
+    assert "Harian" not in view.heading_label.text()
     view._populate_sales_report(
         ReportService(report_session).sales(start, end),
         "09-10-2026",

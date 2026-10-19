@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     # `python -m server.seed_admin`. Ganti di server/.env untuk produksi.
     admin_email: str = "admin@pos.local"
     admin_password: str = "admin12345"
-    installer_path: Path = BASE_DIR.parent / "build" / "installer_v3" / "AnjayRetailSoft.exe"
+    installer_path: Path = BASE_DIR.parent / "build" / "installer_v5" / "AnjayKasirunApp.exe"
     # Nama bank yang ditampilkan pada panel ATM/transfer simulasi.
     simulated_va_bank: str = "BANK SIMULASI"
 
